@@ -41,3 +41,6 @@ example
 # generated native folders
 /ios
 /android
+
+# Excel del catálogo y de imágenes, y cachés de los scripts: la app los descarga de OneDrive, no van en el repositorio
+/datos/

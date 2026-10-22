@@ -1,21 +1,15 @@
-import { useEffect, useState } from 'react';
-import { useColorScheme as useRNColorScheme } from 'react-native';
+import { useSyncExternalStore } from 'react';
+
+import { useTema } from '@/data/tema';
+
+const nada = () => () => undefined;
 
 /**
- * To support static rendering, this value needs to be re-calculated on the client side for web
+ * Esquema de color en uso. La página se genera en el servidor, que no sabe el tema del navegador: ahí se dibuja en
+ * claro y, ya en el navegador, con el tema que corresponde.
  */
-export function useColorScheme() {
-  const [hasHydrated, setHasHydrated] = useState(false);
-
-  useEffect(() => {
-    setHasHydrated(true);
-  }, []);
-
-  const colorScheme = useRNColorScheme();
-
-  if (hasHydrated) {
-    return colorScheme;
-  }
-
-  return 'light';
+export function useColorScheme(): 'light' | 'dark' {
+  const enNavegador = useSyncExternalStore(nada, () => true, () => false);
+  const { esquema } = useTema();
+  return enNavegador ? esquema : 'light';
 }
