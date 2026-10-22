@@ -224,7 +224,7 @@ const styles = StyleSheet.create({
   encabezado: { paddingHorizontal: Spacing.three, paddingTop: Spacing.two, paddingBottom: Spacing.three, gap: Spacing.two, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   tituloFila: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 36 },
   titulo: { color: '#fff', fontSize: 26, fontWeight: '700' },
-  franja: { height: 3, backgroundColor: '#BC955C' },
+  franja: { height: 3, backgroundColor: '#CFB579' },
   barraFila: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   barra: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderRadius: 12, paddingHorizontal: 12, minHeight: 42 },
   input: { flex: 1, fontSize: 16, paddingVertical: 9 },

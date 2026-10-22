@@ -206,7 +206,7 @@ export const s = StyleSheet.create({
   bannerEyebrow: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '500' },
   bannerTitulo: { color: '#fff', fontSize: 26, fontWeight: '700', marginTop: 4 },
   bannerSub: { color: 'rgba(255,255,255,0.88)', fontSize: 14, marginTop: 4 },
-  bannerFranja: { height: 4, backgroundColor: '#BC955C' },
+  bannerFranja: { height: 4, backgroundColor: '#CFB579' },
   estado: { fontSize: 12, textAlign: 'center' },
   aviso: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center', borderRadius: 10, borderLeftWidth: 4, padding: Spacing.three },
   avisoTexto: { flex: 1, fontSize: 13, lineHeight: 18 },

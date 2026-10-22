@@ -14,7 +14,7 @@ import { REGIONES, contar, diasVigencia, entero, fechaLarga, hoyISO, nArt, type 
 import { useAbasto, type FiltrosArticulos } from '@/data/abasto-context';
 import { useTheme } from '@/hooks/use-theme';
 
-const DORADO = '#BC955C';
+const DORADO = '#CFB579';
 
 /**
  * Inicio: resumen ejecutivo del catálogo. Cada sección muestra lo esencial, se despliega con «Ver detalle»
@@ -181,7 +181,7 @@ export default function Inicio() {
 
           <View style={styles.pie}>
             <View style={[styles.pieLinea, { backgroundColor: DORADO }]} />
-            <Text style={[styles.pieTexto, { color: t.muted }]}>Subgerencia de Abarrotes</Text>
+            <Text style={[styles.pieTexto, { color: t.muted }]}>Programa de Abasto Rural 2026</Text>
             <Text style={[styles.pieTexto, { color: t.muted }]}>Alimentación para el Bienestar · Gobierno de México</Text>
           </View>
         </View>
@@ -208,8 +208,8 @@ function EncabezadoInstitucional() {
             <SelectorTema />
           </View>
         </View>
-        <Text style={styles.area}>SUBGERENCIA DE ABARROTES</Text>
-        <Text style={styles.titulo}>Programa de Abasto Rural 2026</Text>
+        <Text style={styles.area}>PROGRAMA DE ABASTO RURAL 2026</Text>
+        <Text style={styles.titulo}>Subgerencia de Abarrotes</Text>
         <Text style={styles.subtitulo}>Resumen del catálogo de artículos vigentes</Text>
         <Text style={styles.fecha}>Información al {fechaLarga(hoyISO())}</Text>
       </SafeAreaView>

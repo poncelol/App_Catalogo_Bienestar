@@ -10,8 +10,8 @@ import { useTheme } from '@/hooks/use-theme';
 
 // Un color por gerencia regional (en oscuro, más claros para que contrasten)
 const PALETA = {
-  light: ['#9D2449', '#235B4E', '#A57F2C', '#2E6B9E', '#3E8E7E', '#611232', '#7A5C1E', '#B5547A', '#5F6B6D', '#4C7A3A', '#7B4F9E', '#C06A2B'],
-  dark: ['#E0698C', '#4FB39A', '#D9AE55', '#6AA6DE', '#8FD3C2', '#C77D93', '#B8955A', '#E59AB3', '#94A3B8', '#8CC26E', '#B58BD9', '#E8955A'],
+  light: ['#9B2247', '#1E5B4F', '#A57F2C', '#2E6B9E', '#3E8E7E', '#611232', '#7A5C1E', '#B5547A', '#002F2A', '#4C7A3A', '#7B4F9E', '#C06A2B'],
+  dark: ['#D9708F', '#5FAE9C', '#CFB579', '#6AA6DE', '#8FD3C2', '#C77D93', '#B8955A', '#E59AB3', '#94A3B8', '#8CC26E', '#B58BD9', '#E8955A'],
 };
 const NEGRO = '#111111';
 
