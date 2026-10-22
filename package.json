@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
+    "@expo/metro-runtime": "~57.0.17",
     "@expo/ui": "~57.0.26",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.31",
@@ -26,7 +27,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
-    "react-native-web": "~0.21.4",
+    "react-native-web": "^0.21.2",
     "react-native-worklets": "0.10.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
