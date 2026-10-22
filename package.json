@@ -50,5 +50,8 @@
     "imagenes:buscar": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/imagenes.mjs --buscar",
     "imagenes:sugerencias": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/imagenes.mjs --sugerencias"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": "22.x"
+  }
 }
