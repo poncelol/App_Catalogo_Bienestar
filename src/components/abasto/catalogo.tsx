@@ -2,6 +2,7 @@ import { Image } from 'expo-image';
 import { memo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View, type TextStyle, type ViewStyle } from 'react-native';
 
+import { IlustracionProducto } from '@/components/abasto/ilustracion-producto';
 import { Icono, s as ui, type ICONOS } from '@/components/abasto/ui';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { diasVigencia, dinero, entero, type Articulo } from '@/data/abasto';
@@ -241,14 +242,14 @@ export function agruparProductos(arts: Articulo[]): ResumenProducto[] {
     .sort((x, y) => y.articulos - x.articulos || x.nombre.localeCompare(y.nombre));
 }
 
-/** Tarjeta de producto (categoría del catálogo): foto, nombre, artículos y precio desde. */
+/** Tarjeta de producto (categoría del catálogo): ilustración, nombre, artículos y precio desde. */
 export const TarjetaProducto = memo(function TarjetaProducto({ p, ancho, onPress }: {
   p: ResumenProducto; ancho: number; onPress: (p: ResumenProducto) => void;
 }) {
   const t = useTheme();
   return (
     <Pressable onPress={() => onPress(p)} style={({ pressed }) => [styles.tarjeta, { width: ancho, backgroundColor: t.backgroundElement }, pressed && ui.presionado]}>
-      <Foto uri={p.imagen} clave={p.prod} icono="producto" style={{ aspectRatio: 4 / 3 }} />
+      <IlustracionProducto nombre={p.nombre} tamIcono={Math.round(ancho * 0.16)} />
       <View style={styles.cuerpo}>
         <Text style={[styles.nombre, { color: t.text }]} numberOfLines={2}>{p.nombre}</Text>
         <Text style={[styles.presentacion, { color: t.textSecondary }]}>

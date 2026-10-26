@@ -3,12 +3,12 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
-import { Foto, RejillaArticulos, Seccion } from '@/components/abasto/catalogo';
+import { RejillaArticulos, Seccion } from '@/components/abasto/catalogo';
+import { IlustracionProducto } from '@/components/abasto/ilustracion-producto';
 import { Chip, Icono, s as ui } from '@/components/abasto/ui';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { contar, dinero, entero, nArt, type Articulo } from '@/data/abasto';
 import { filtrarArticulos } from '@/data/busqueda';
-import { imagenProducto } from '@/data/imagenes';
 import { useTheme } from '@/hooks/use-theme';
 
 type Props = {
@@ -31,7 +31,6 @@ export function ProductoDetalle({ prod, articulos, onClose, onVerProveedor }: Pr
     return {
       arts,
       nombre: arts[0]?.producto ?? '',
-      imagen: imagenProducto(prod ?? '', arts),
       proveedores: contar(arts, (a) => a.cve, (a) => a.provCorto),
       marcas: contar(arts, (a) => a.marca),
       min: costos.length ? Math.min(...costos) : null,
@@ -52,7 +51,7 @@ export function ProductoDetalle({ prod, articulos, onClose, onVerProveedor }: Pr
       <SafeAreaView style={[styles.hoja, { backgroundColor: t.background }]} edges={['top', 'bottom']}>
         <ScrollView contentContainerStyle={styles.cuerpo}>
           <View>
-            <Foto uri={d.imagen} clave={prod} icono="producto" style={styles.foto} grande />
+            <IlustracionProducto nombre={d.nombre} tamIcono={52} style={styles.foto} />
             <Pressable onPress={cerrar} hitSlop={12} accessibilityLabel="Cerrar"
               style={({ pressed }) => [styles.cerrar, { backgroundColor: t.backgroundElement }, pressed && ui.presionado]}>
               <Icono nombre="cerrar" color={t.text} tam={16} />
