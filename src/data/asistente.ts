@@ -32,12 +32,17 @@ export type Mensaje = {
   aviso?: string;
   /** Pregunta que originó una respuesta con error, para poder reintentarla. */
   pregunta?: string;
+  /** Proveedores o productos que se pidieron («¿quién vende aceite?»), como tarjetas. */
+  proveedores?: Grupo[];
+  productos?: Grupo[];
 };
 
 export type PropsChat = {
   mensajes: Mensaje[];
   setMensajes: (f: (m: Mensaje[]) => Mensaje[]) => void;
   onVerArticulo: (a: Articulo) => void;
+  onVerProveedor: (cve: string) => void;
+  onVerProducto: (prod: string) => void;
 };
 
 /** En qué va el modelo: revisando si ya está descargado, descargando, cargando en memoria, listo o con error. */
@@ -277,6 +282,7 @@ const VACIAS = new Set(`
   importante importantes principal principales mejores popular populares destacado destacados top primeros primeras
   ultimos ultimas nuevo nuevos tres cinco diez algunos varios ejemplo ejemplos opciones info informacion detalle
   detalles favor porfa porfavor sus
+  ese esa esos esas eso quienes mismo misma mismos mismas aquel aquella aquellos aquellas ellas
 `.split(/\s+/).filter(Boolean));
 
 /** Palabras de razones sociales que no identifican a un proveedor. */
@@ -291,28 +297,47 @@ function aparece(ps: string[], p: string) {
   return ps.some((w) => w === p || w === `${p}s` || w === `${p}es` || p === `${w}s` || p === `${w}es` || (p.length >= 5 && w.startsWith(p)));
 }
 
+/** Lo que entiende la app de una pregunta: qué pide y sobre qué (el tema y los filtros). */
+export type Intencion = {
+  /** Qué se pide: artículos (lo normal), la lista de proveedores, de productos o de marcas, o cifras generales. */
+  pide: 'articulos' | 'proveedores' | 'productos' | 'marcas' | 'resumen';
+  /** Palabras a buscar en los artículos. */
+  clave: string[];
+  /** Primera palabra del producto nombrado («aceite»). */
+  producto?: string;
+  proveedor?: { cve: string; nombre: string };
+  marca?: string;
+  region?: string;
+  inventario?: string;
+  orden?: 'menor' | 'mayor';
+  vence?: number;
+};
+
+/** Proveedor o producto con cuántos artículos tiene, para las tarjetas del chat. */
+export type Grupo = { clave: string; nombre: string; articulos: number };
+
 export type Consulta = {
   /** Datos del catálogo para el modelo (vacío si la pregunta no trata del catálogo). */
   datos: string;
-  /** Artículos encontrados, para las tarjetas. */
+  /** Tarjetas: artículos, proveedores o productos, según lo que se pidió. */
   articulos: Articulo[];
-  /** La pregunta no nombra producto, proveedor, marca ni palabras de búsqueda (p. ej. «¿y el más caro?»). */
-  sinTema: boolean;
+  proveedores: Grupo[];
+  productos: Grupo[];
 };
 
+export const tieneTema = (i: Intencion) => !!(i.clave.length || i.producto || i.proveedor || i.marca);
+export const tieneFiltros = (i: Intencion) => !!(i.region || i.inventario || i.orden || i.vence !== undefined);
+
 /**
- * Entiende la pregunta sin IA (producto, proveedor, marca, región, oferta, vigencia, orden por costo o cifras
- * generales) y consulta el catálogo con las mismas herramientas. Así un modelo pequeño no tiene que decidir qué
- * buscar: solo redacta con datos reales.
+ * Entiende la pregunta sin IA: qué pide (artículos, proveedores, productos, marcas o cifras generales) y sobre qué
+ * (producto, proveedor, marca, región, oferta, vigencia, orden por costo). Así un modelo pequeño no tiene que
+ * decidir qué buscar: solo redacta con datos reales.
  */
-export function consultarCatalogo(pregunta: string, arts: Articulo[]): Consulta {
+export function entender(pregunta: string, arts: Articulo[]): Intencion {
   const q = sinAcentos(pregunta);
   const ps = palabras(pregunta);
-  const encontrados: Articulo[] = [];
-  const [buscar, proveedorH, productoH, resumenH] = crearHerramientas(() => arts, (a) => encontrados.push(...a));
-  const partes: string[] = [];
 
-  // Si dice «barato» y «caro» (un seguimiento junto a la pregunta anterior), gana lo que aparece primero
+  // Si dice «barato» y «caro», gana lo que aparece primero
   const iMenor = q.search(/barat|economic|menor (precio|costo)|mas bajo/);
   const iMayor = q.search(/\bcar[oa]s?\b|mayor (precio|costo)|mas alto/);
   const orden = iMenor >= 0 && (iMayor < 0 || iMenor < iMayor) ? 'menor' : iMayor >= 0 ? 'mayor' : undefined;
@@ -326,13 +351,13 @@ export function consultarCatalogo(pregunta: string, arts: Articulo[]): Consulta 
   // Proveedor: el que más palabras propias de su nombre comparte con la pregunta. No cuentan las que también son
   // de un producto o de una región: «aceites» es el producto, no «Aceites Grasas y Derivados»; «Sureste» es la
   // región, no «Hari Masa del Sureste»
-  const comunes = new Set([
+  const comunes = [...new Set([
     ...arts.flatMap((a) => palabras(a.producto)),
     ...SIGLAS.flatMap((s) => [REGIONES[s].nombre, ...REGIONES[s].estados].flatMap((l) => palabras(l))),
-  ]);
-  let proveedor: { cve: string; nombre: string; puntos: number } | null = null;
+  ])];
+  let proveedor: { cve: string; nombre: string; puntos: number } | undefined;
   for (const c of contar(arts, (a) => a.cve, (a) => a.provCorto)) {
-    const propias = palabras(c.etiqueta).filter((w) => w.length >= 4 && !GENERICAS_PROVEEDOR.has(w) && !aparece([...comunes], w));
+    const propias = palabras(c.etiqueta).filter((w) => w.length >= 4 && !GENERICAS_PROVEEDOR.has(w) && !aparece(comunes, w));
     const puntos = propias.filter((w) => aparece(ps, w)).length;
     if (puntos && (!proveedor || puntos > proveedor.puntos)) proveedor = { cve: c.clave, nombre: c.etiqueta, puntos };
   }
@@ -351,37 +376,147 @@ export function consultarCatalogo(pregunta: string, arts: Articulo[]): Consulta 
     .map((w) => arts.map((a) => palabras(a.producto)[0] ?? '').find((p) => p && aparece([w], p)))
     .find(Boolean);
 
-  const filtros = { inventario, region, orden, vence_en_dias: vence, proveedor: proveedor?.nombre };
-  const hayFiltros = Object.values(filtros).some((v) => v !== undefined);
-
-  if (proveedor) partes.push(proveedorH.execute({ nombre: proveedor.nombre }));
-  if (producto && !proveedor) partes.push(productoH.execute({ nombre: producto }));
-  // Las tarjetas son las de la búsqueda (con su orden) si la hubo; si no, las del producto o proveedor
-  let desde = 0;
-  if (clave.length || marca || hayFiltros) {
-    desde = encontrados.length;
-    let r = buscar.execute({ ...filtros, texto: [marca, ...clave].filter(Boolean).join(' ') });
-    // Si con todas las palabras no hay nada, se intenta con cada una (p. ej. «frijoles para la tienda»)
-    for (const w of clave) {
-      if (!r.startsWith('No se encontraron')) break;
-      r = buscar.execute({ ...filtros, texto: [marca, w].filter(Boolean).join(' ') });
-    }
-    // Y si aun así no hay nada, solo con la marca, el proveedor y los filtros («los importantes de Cuetara»)
-    if (r.startsWith('No se encontraron') && clave.length && (marca || hayFiltros)) {
-      r = buscar.execute({ ...filtros, texto: marca ?? '' });
-    }
-    partes.push(r);
-  }
-  if (!partes.length && /cuant|total|resumen|catalogo|interesante|general|cifra|estadistic|productos|proveedores|marcas/.test(q)) {
-    partes.push(resumenH.execute({}));
-  }
-
-  const vistos = new Set<string>();
-  return {
-    datos: partes.join('\n\n'),
-    articulos: (encontrados.length > desde ? encontrados.slice(desde) : encontrados).filter((a) => !vistos.has(a.artId) && vistos.add(a.artId)),
-    sinTema: !clave.length && !proveedor && !marca,
+  const i: Intencion = {
+    pide: 'articulos', clave, producto, marca, region, inventario, orden, vence,
+    proveedor: proveedor && { cve: proveedor.cve, nombre: proveedor.nombre },
   };
+  // Qué pide: «¿quién vende…?» y «proveedores» → proveedores; «marcas» → marcas; «productos» → productos.
+  // «¿Cuántos productos tenemos?» o «un dato interesante», sin tema ni filtros, son cifras generales
+  // «de ese proveedor», «de esa marca» señalan algo ya dicho, no piden la lista
+  const sinReferencias = q.replace(/\b(de |del )?(ese|este|el mismo|dicho|su|esa|esta|la misma)\s+(proveedor|empresa|marca|producto)\b/g, '');
+  if (/\bproveedor(es)?\b|\bempresas?\b|\bquien(es)?\b.*\b(vende|venden|surte|surten|maneja|manejan|ofrece|ofrecen|trae|traen)\b/.test(sinReferencias)) i.pide = 'proveedores';
+  else if (/\bmarcas?\b/.test(sinReferencias)) i.pide = 'marcas';
+  else if (/\bproductos?\b|\bcategorias?\b/.test(sinReferencias)) i.pide = 'productos';
+  if (!tieneTema(i) && !tieneFiltros(i) && /cuant|total|resumen|interesante|general|catalogo|estadistic|cifra/.test(q)) i.pide = 'resumen';
+  return i;
+}
+
+/** Palabras que señalan que la pregunta sigue con el tema anterior («¿y el más caro?», «¿quién los vende?»). */
+const SEGUIMIENTO = /^\s*¿?\s*y\b|\b(lo|los|la|las|le|les|ese|esa|esos|esas|este|esta|estos|estas|ellos|ellas|mismo|misma|mismos|otro|otros|otra|otras|eso|esto)\b/;
+
+/**
+ * Une la pregunta con la anterior cuando no trae tema propio: «¿Qué aceites hay?» → «¿quién los vende?» busca
+ * proveedores de aceite; «¿y en oferta?» repite la búsqueda con ese filtro. También «ese proveedor» o «esa marca».
+ */
+export function conContexto(actual: Intencion, previa: Intencion | null, pregunta: string): Intencion {
+  if (!previa) return actual;
+  const q = sinAcentos(pregunta);
+  const i: Intencion = { ...actual };
+  if (!i.proveedor && previa.proveedor && /\b(ese|este|el mismo|dicho|del mismo)\s+(proveedor|empresa)\b|\bellos\b/.test(q)) i.proveedor = previa.proveedor;
+  if (!i.marca && previa.marca && /\b(esa|esta|la misma|de la misma)\s+marca\b/.test(q)) i.marca = previa.marca;
+  if (!i.producto && !i.clave.length && previa.clave.length && /\b(ese|este|el mismo)\s+(producto|articulo)\b/.test(q)) {
+    i.clave = previa.clave;
+    i.producto = previa.producto;
+  }
+  // «¿Y de La Costeña?» después de «frijoles en oferta»: agrega el proveedor sin perder los frijoles ni la oferta
+  if (tieneTema(i) && /^\s*¿?\s*y\b/.test(q)) {
+    const nuevoTema = i.clave.length > 0;
+    return {
+      ...i,
+      clave: nuevoTema ? i.clave : previa.clave,
+      producto: nuevoTema ? i.producto : previa.producto,
+      proveedor: i.proveedor ?? (nuevoTema ? undefined : previa.proveedor),
+      marca: i.marca ?? (nuevoTema ? undefined : previa.marca),
+      region: i.region ?? previa.region,
+      inventario: i.inventario ?? previa.inventario,
+      vence: i.vence ?? previa.vence,
+      orden: i.orden ?? previa.orden,
+    };
+  }
+  const sigue = !tieneTema(i) && (tieneFiltros(actual) || actual.pide !== 'articulos' || SEGUIMIENTO.test(q))
+    && (actual.pide !== 'resumen' || SEGUIMIENTO.test(q));
+  if (!sigue) return i;
+  return {
+    ...i,
+    pide: actual.pide === 'resumen' ? 'articulos' : actual.pide,
+    clave: previa.clave,
+    producto: previa.producto,
+    proveedor: previa.proveedor,
+    marca: previa.marca,
+    region: actual.region ?? previa.region,
+    inventario: actual.inventario ?? previa.inventario,
+    vence: actual.vence ?? previa.vence,
+    orden: actual.orden ?? previa.orden,
+  };
+}
+
+/** Consulta el catálogo según lo que se entendió de la pregunta, con las mismas herramientas. */
+export function consultarCatalogo(i: Intencion, arts: Articulo[]): Consulta {
+  let ultimos: Articulo[] = [];
+  const [buscar, proveedorH, productoH, resumenH] = crearHerramientas(() => arts, (a) => {
+    ultimos = a;
+  });
+  const vacia: Consulta = { datos: '', articulos: [], proveedores: [], productos: [] };
+  if (i.pide === 'resumen') return { ...vacia, datos: resumenH.execute({}) };
+
+  const filtros = { inventario: i.inventario, region: i.region, orden: i.orden, vence_en_dias: i.vence, proveedor: i.proveedor?.nombre };
+  const hayFiltros = Object.values(filtros).some((v) => v !== undefined);
+  const texto = [i.marca, ...i.clave].filter(Boolean).join(' ');
+
+  // Artículos del tema; si con todas las palabras no hay nada, con cada una, y luego solo con marca y filtros
+  let busqueda = '';
+  let subconjunto: Articulo[] | null = null;
+  if (texto || hayFiltros) {
+    const sinNada = (r: string) => r.startsWith('No se encontraron');
+    busqueda = buscar.execute({ ...filtros, texto });
+    for (const w of i.clave) {
+      if (!sinNada(busqueda)) break;
+      busqueda = buscar.execute({ ...filtros, texto: [i.marca, w].filter(Boolean).join(' ') });
+    }
+    if (sinNada(busqueda) && i.clave.length && (i.marca || hayFiltros)) busqueda = buscar.execute({ ...filtros, texto: i.marca ?? '' });
+    subconjunto = ultimos;
+  }
+
+  const tema = [
+    texto && `«${texto}»`,
+    i.proveedor && !texto && `de ${i.proveedor.nombre}`,
+    i.region && `en la región ${REGIONES[i.region].nombre}`,
+    i.inventario && `en ${i.inventario}`,
+    i.vence !== undefined && `que vencen en ${i.vence} días o menos`,
+  ].filter(Boolean).join(' ');
+
+  if (i.pide === 'proveedores' || i.pide === 'productos' || i.pide === 'marcas') {
+    const base = subconjunto ?? arts;
+    if (!base.length) return { ...vacia, datos: `No encontré artículos ${tema}.` };
+    const grupos = i.pide === 'proveedores'
+      ? contar(base, (a) => a.cve, (a) => a.provCorto)
+      : i.pide === 'productos' ? contar(base, (a) => a.prod, (a) => a.producto) : contar(base, (a) => a.marca);
+    const nombre = { proveedores: 'proveedores', productos: 'productos', marcas: 'marcas' }[i.pide];
+    const renglones = grupos.slice(0, 12).map((g) => {
+      const suyos = base.filter((a) => (i.pide === 'proveedores' ? a.cve : i.pide === 'productos' ? a.prod : a.marca) === g.clave);
+      const id = i.pide === 'proveedores' ? ` (CVE ${g.clave})` : i.pide === 'productos' ? ` (PROD. ${g.clave})` : '';
+      return `- ${g.etiqueta}${id}: ${g.valor} ${g.valor === 1 ? 'artículo' : 'artículos'}, costo unitario ${rango(suyos)}`;
+    });
+    // Si el proveedor quedó claro («datos de La Costeña»), también su resumen completo
+    const extra = i.pide === 'proveedores' && grupos.length === 1 && i.proveedor ? proveedorH.execute({ nombre: i.proveedor.nombre }) : '';
+    const datos = [
+      `${grupos.length} ${nombre}${tema ? ` con artículos ${tema}` : ' en el catálogo'}${grupos.length > 12 ? '; estos son los 12 con más artículos' : ''}:`,
+      ...renglones,
+      extra,
+    ].filter(Boolean).join('\n');
+    const tarjetas = grupos.slice(0, 8).map((g) => ({ clave: g.clave, nombre: g.etiqueta, articulos: g.valor }));
+    return {
+      ...vacia,
+      datos,
+      proveedores: i.pide === 'proveedores' ? tarjetas : [],
+      productos: i.pide === 'productos' ? tarjetas : [],
+      articulos: i.pide === 'marcas' ? filtrarArticulos(base, {}) : [],
+    };
+  }
+
+  // Artículos: resumen del proveedor o del producto nombrado, y la búsqueda
+  const partes: string[] = [];
+  let tarjetas: Articulo[] = subconjunto ?? [];
+  if (i.proveedor) {
+    partes.push(proveedorH.execute({ nombre: i.proveedor.nombre }));
+    if (!subconjunto) tarjetas = ultimos;
+  } else if (i.producto) {
+    partes.push(productoH.execute({ nombre: i.producto }));
+    if (!subconjunto) tarjetas = ultimos;
+  }
+  if (busqueda) partes.push(busqueda);
+  const vistos = new Set<string>();
+  return { ...vacia, datos: partes.join('\n\n'), articulos: tarjetas.filter((a) => !vistos.has(a.artId) && vistos.add(a.artId)) };
 }
 
 /** Mensaje para el modelo: los datos consultados y la pregunta. */

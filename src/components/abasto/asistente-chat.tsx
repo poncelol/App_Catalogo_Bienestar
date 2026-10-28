@@ -4,16 +4,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { FilaArticulo } from '@/components/abasto/catalogo';
+import { FilaArticulo, Foto } from '@/components/abasto/catalogo';
+import { IlustracionProducto } from '@/components/abasto/ilustracion-producto';
 import { INFO_MOTOR, useMotor } from '@/components/abasto/motor-ia';
 import { Icono, s as ui } from '@/components/abasto/ui';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { contar, entero, sinAcentos, type Articulo } from '@/data/abasto';
+import { contar, entero } from '@/data/abasto';
 import { useAbasto } from '@/data/abasto-context';
 import {
-  consultarCatalogo, limpiarRespuesta, mensajeConDatos, revisarRespuesta, type EstadoMotor, type Mensaje, type PropsChat,
+  conContexto, consultarCatalogo, entender, limpiarRespuesta, mensajeConDatos, revisarRespuesta, tieneFiltros, tieneTema,
+  type EstadoMotor, type Grupo, type Intencion, type Mensaje, type PropsChat,
 } from '@/data/asistente';
-import { palabras } from '@/data/busqueda';
+import { imagenProveedor } from '@/data/imagenes';
 import { useTheme } from '@/hooks/use-theme';
 
 export type { Mensaje } from '@/data/asistente';
@@ -34,12 +36,12 @@ export function ChatAsistente(props: PropsChat) {
   return <Sesion key={intento} {...props} onReintentar={() => setIntento((n) => n + 1)} />;
 }
 
-function Sesion({ mensajes, setMensajes, onVerArticulo, onReintentar }: PropsChat & { onReintentar: () => void }) {
+function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerProducto, onReintentar }: PropsChat & { onReintentar: () => void }) {
   const { datos, cargando } = useAbasto();
   const [generando, setGenerando] = useState(false);
   const motor = useMotor();
-  // Pregunta anterior, para entender seguimientos como «¿y el más caro?»
-  const anterior = useRef('');
+  // Lo que se entendió de la pregunta anterior, para seguimientos como «¿y el más caro?» o «¿quién los vende?»
+  const previa = useRef<Intencion | null>(null);
   // Candado: dos toques rápidos mandarían dos preguntas antes de que `generando` cambie, y el modelo solo atiende una
   const ocupado = useRef(false);
   const detener = useRef(motor.detener);
@@ -63,7 +65,7 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onReintentar }: PropsCha
       '¿Qué aceites hay y cuál es el más barato?',
       'Artículos en oferta que vencen en 30 días',
       proveedor ? `¿Qué productos vende ${proveedor}?` : 'Resumen del catálogo',
-      'Frijoles que se surten en la región Sureste',
+      '¿Qué proveedores venden frijoles en la región Sureste?',
     ];
   }, [datos]);
 
@@ -80,15 +82,18 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onReintentar }: PropsCha
       return;
     }
     ocupado.current = true;
-    // Primero la app consulta el catálogo; si la pregunta no dice de qué (un seguimiento corto), usa el tema anterior
-    let consulta = consultarCatalogo(q, arts);
-    if (consulta.sinTema && anterior.current && esSeguimiento(q)) consulta = consultarCatalogo(`${q} ${anterior.current}`, arts);
-    if (!consulta.sinTema) anterior.current = q;
+    // Primero la app entiende la pregunta (unida a la anterior si sigue con su tema) y consulta el catálogo
+    const intencion = conContexto(entender(q, arts), previa.current, q);
+    const consulta = consultarCatalogo(intencion, arts);
+    if (tieneTema(intencion) || tieneFiltros(intencion)) previa.current = intencion;
 
     const id = nuevoId();
     setGenerando(true);
     // Las tarjetas aparecen de inmediato; el modelo redacta mientras tanto
-    setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, { id, rol: 'asistente', texto: '', pendiente: true, articulos: consulta.articulos }]);
+    setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, {
+      id, rol: 'asistente', texto: '', pendiente: true,
+      articulos: consulta.articulos, proveedores: consulta.proveedores, productos: consulta.productos,
+    }]);
     const cambiar = (c: Partial<Mensaje>) => setMensajes((m) => m.map((x) => (x.id === id ? { ...x, ...c } : x)));
     // El texto llega palabra por palabra: se muestra a lo más cada 80 ms, no en cada palabra (redibujar toda la
     // conversación tantas veces la vuelve lenta)
@@ -125,16 +130,10 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onReintentar }: PropsCha
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Conversacion mensajes={mensajes} sugerencias={sugerencias} onEnviar={enviar} onVerArticulo={onVerArticulo} />
+      <Conversacion mensajes={mensajes} sugerencias={sugerencias} onEnviar={enviar} acciones={{ onVerArticulo, onVerProveedor, onVerProducto }} />
       <Entrada generando={generando} onEnviar={enviar} onDetener={motor.detener} />
     </KeyboardAvoidingView>
   );
-}
-
-/** «¿Y el más caro?», «¿y en oferta?»: preguntas cortas que siguen con el tema anterior. */
-function esSeguimiento(q: string) {
-  const t = sinAcentos(q);
-  return !/cuant|total|resumen|interesante|catalogo|hola|gracias/.test(t) && (/^[¿\s]*y\b/.test(t) || palabras(q).length <= 5);
 }
 
 const ERRORES = {
@@ -199,8 +198,10 @@ function Barra({ progreso }: { progreso: number }) {
   );
 }
 
-function Conversacion({ mensajes, sugerencias, onEnviar, onVerArticulo }: {
-  mensajes: Mensaje[]; sugerencias: string[]; onEnviar: (q: string) => void; onVerArticulo: (a: Articulo) => void;
+type Acciones = Pick<PropsChat, 'onVerArticulo' | 'onVerProveedor' | 'onVerProducto'>;
+
+function Conversacion({ mensajes, sugerencias, onEnviar, acciones }: {
+  mensajes: Mensaje[]; sugerencias: string[]; onEnviar: (q: string) => void; acciones: Acciones;
 }) {
   const t = useTheme();
   const scroll = useRef<ScrollView>(null);
@@ -236,13 +237,13 @@ function Conversacion({ mensajes, sugerencias, onEnviar, onVerArticulo }: {
           </View>
         </View>
       ) : (
-        mensajes.map((m) => <Burbuja key={m.id} m={m} onVerArticulo={onVerArticulo} onReintentar={onEnviar} />)
+        mensajes.map((m) => <Burbuja key={m.id} m={m} acciones={acciones} onReintentar={onEnviar} />)
       )}
     </ScrollView>
   );
 }
 
-function Burbuja({ m, onVerArticulo, onReintentar }: { m: Mensaje; onVerArticulo: (a: Articulo) => void; onReintentar: (q: string) => void }) {
+function Burbuja({ m, acciones, onReintentar }: { m: Mensaje; acciones: Acciones; onReintentar: (q: string) => void }) {
   const t = useTheme();
   if (m.rol === 'usuario') {
     return (
@@ -278,11 +279,42 @@ function Burbuja({ m, onVerArticulo, onReintentar }: { m: Mensaje; onVerArticulo
       </View>
       {m.articulos?.length ? (
         <View style={{ gap: Spacing.two }}>
-          {m.articulos.slice(0, TARJETAS).map((a) => <FilaArticulo key={a.artId} a={a} onPress={onVerArticulo} />)}
+          {m.articulos.slice(0, TARJETAS).map((a) => <FilaArticulo key={a.artId} a={a} onPress={acciones.onVerArticulo} />)}
           {extra > 0 ? <Text style={[styles.mas, { color: t.muted }]}>y {entero(extra)} artículos más en el catálogo</Text> : null}
         </View>
       ) : null}
+      {m.proveedores?.length ? (
+        <View style={{ gap: Spacing.two }}>
+          {m.proveedores.map((g) => <FilaGrupo key={g.clave} g={g} tipo="proveedor" onPress={() => acciones.onVerProveedor(g.clave)} />)}
+        </View>
+      ) : null}
+      {m.productos?.length ? (
+        <View style={{ gap: Spacing.two }}>
+          {m.productos.map((g) => <FilaGrupo key={g.clave} g={g} tipo="producto" onPress={() => acciones.onVerProducto(g.clave)} />)}
+        </View>
+      ) : null}
     </View>
+  );
+}
+
+/** Tarjeta de un proveedor (con su logotipo) o de un producto (con su ilustración): lleva a su catálogo. */
+function FilaGrupo({ g, tipo, onPress }: { g: Grupo; tipo: 'proveedor' | 'producto'; onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button"
+      style={({ pressed }) => [styles.grupo, { backgroundColor: t.backgroundElement }, pressed && ui.presionado]}>
+      {tipo === 'producto'
+        ? <IlustracionProducto nombre={g.nombre} tamIcono={18} style={styles.grupoImagen} />
+        : <Foto uri={imagenProveedor(g.clave)} clave={g.clave} icono="proveedor" style={styles.grupoImagen} tamIcono={20} />}
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={[styles.grupoNombre, { color: t.text }]} numberOfLines={2}>{g.nombre}</Text>
+        <Text style={[styles.grupoDetalle, { color: t.textSecondary }]}>
+          {tipo === 'proveedor' ? `CVE ${g.clave}` : `PROD. ${g.clave}`} · {entero(g.articulos)} {g.articulos === 1 ? 'artículo' : 'artículos'}
+        </Text>
+      </View>
+      <Text style={[styles.grupoAccion, { color: t.accent }]}>{tipo === 'proveedor' ? 'Ver artículos' : 'Ver producto'}</Text>
+      <Icono nombre="flecha" color={t.accent} tam={13} />
+    </Pressable>
   );
 }
 
@@ -378,6 +410,11 @@ const styles = StyleSheet.create({
   advertenciaTexto: { flex: 1, fontSize: 12, lineHeight: 16 },
   pensando: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   pensandoTexto: { fontSize: 13 },
+  grupo: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, borderRadius: 14, padding: 10, paddingRight: 12 },
+  grupoImagen: { width: 48, height: 48, aspectRatio: undefined, borderRadius: 10 },
+  grupoNombre: { fontSize: 14, fontWeight: '600', lineHeight: 18 },
+  grupoDetalle: { fontSize: 12 },
+  grupoAccion: { fontSize: 12, fontWeight: '600' },
   reintentar: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   reintentarTexto: { fontSize: 13, fontWeight: '600' },
   mas: { fontSize: 12, textAlign: 'center' },

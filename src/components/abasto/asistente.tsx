@@ -23,7 +23,7 @@ export const useAbrirAsistente = () => useContext(Contexto);
  */
 export function AsistenteProvider({ children }: { children: ReactNode }) {
   const t = useTheme();
-  const { setFiltrosArticulos } = useAbasto();
+  const { setFiltrosArticulos, setProductoAbierto } = useAbasto();
   const [abierto, setAbierto] = useState(false);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [sel, setSel] = useState<Articulo | null>(null);
@@ -33,6 +33,19 @@ export function AsistenteProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     precargarModelo();
   }, []);
+
+  // Desde una tarjeta del chat: se cierra la hoja y se abre el catálogo del proveedor o la ficha del producto
+  const verProveedor = (cve: string) => {
+    setSel(null);
+    setAbierto(false);
+    setFiltrosArticulos({ proveedor: cve });
+    router.navigate('/articulos');
+  };
+  const verProducto = (prod: string) => {
+    setAbierto(false);
+    setProductoAbierto(prod);
+    router.navigate('/productos');
+  };
 
   const nueva = () => {
     setMensajes([]);
@@ -67,18 +80,14 @@ export function AsistenteProvider({ children }: { children: ReactNode }) {
             <View style={styles.franja} />
           </View>
           {abierto ? (
-            <ChatAsistente key={conversacion} mensajes={mensajes} setMensajes={setMensajes} onVerArticulo={setSel} />
+            <ChatAsistente key={conversacion} mensajes={mensajes} setMensajes={setMensajes} onVerArticulo={setSel}
+              onVerProveedor={verProveedor} onVerProducto={verProducto} />
           ) : null}
         </View>
         <ArticuloDetalle
           articulo={sel}
           onClose={() => setSel(null)}
-          onVerProveedor={(a) => {
-            setSel(null);
-            setAbierto(false);
-            setFiltrosArticulos({ proveedor: a.cve });
-            router.navigate('/articulos');
-          }}
+          onVerProveedor={(a) => verProveedor(a.cve)}
         />
       </Modal>
     </Contexto.Provider>
