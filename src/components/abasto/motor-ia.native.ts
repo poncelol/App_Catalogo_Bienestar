@@ -1,20 +1,36 @@
 /**
  * Motor del asistente en Android y iPhone: Qwen 3 0.6B con react-native-executorch, dentro del teléfono.
  * La versión web está en motor-ia.ts.
+ *
+ * La librería trae código nativo: solo existe en la app instalada (build de EAS o de desarrollo), no en Expo Go.
+ * Por eso se carga con require y solo si está disponible; si no, el resto de la app funciona y el asistente avisa.
  */
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { getNetworkStateAsync, NetworkStateType } from 'expo-network';
 import { useEffect, useRef, useState } from 'react';
-import {
-  createLLMChatSession, download, models, setTelemetryEnabled, useResourceDownload, type LLMChatSession,
-} from 'react-native-executorch';
+import type { LLMChatSession } from 'react-native-executorch';
 
 import { instrucciones, limpiarRespuesta, type EstadoMotor, type Motor } from '@/data/asistente';
 
-setTelemetryEnabled(false);
+type Executorch = typeof import('react-native-executorch');
+
+/** La librería, o null en Expo Go (o si la app se instaló antes de agregarla y le falta el código nativo). */
+const rne: Executorch | null = (() => {
+  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const lib = require('react-native-executorch') as Executorch;
+    lib.setTelemetryEnabled(false);
+    return lib;
+  } catch {
+    return null;
+  }
+})();
 
 // Qwen 3 de 0.6 mil millones de parámetros: entiende español y redacta bien con los datos que se le pasan.
 // Se descarga una vez (518 MB) y desde entonces funciona sin internet
-const MODELO = models.llm.QWEN3_0_6B.XNNPACK_8DA4W;
+const MODELO = rne?.models.llm.QWEN3_0_6B.XNNPACK_8DA4W;
+type Modelo = NonNullable<typeof MODELO>;
 // Sin razonamiento visible (más rápido), casi sin aleatoriedad para que se apegue a los datos, y con castigo a
 // repetir para que no se cicle
 const GENERACION = { enableThinking: false, temperature: 0.2, topP: 0.8, topK: 20, repetitionPenalty: 1.1, maxNewTokens: 300 };
@@ -29,13 +45,27 @@ export const INFO_MOTOR = { tamano: '520 MB', lugar: 'tu teléfono' };
  * continúa donde se quedó. Si el asistente se abre a media descarga, se une a esta en vez de empezar otra.
  */
 export async function precargarModelo() {
+  if (!rne || !MODELO) return;
   const red = await getNetworkStateAsync().catch(() => null);
   if (!red?.isConnected || (red.type !== NetworkStateType.WIFI && red.type !== NetworkStateType.ETHERNET)) return;
-  await download(MODELO).catch(() => undefined);
+  await rne.download(MODELO).catch(() => undefined);
 }
 
-export function useMotor(): Motor {
-  const { resource, downloadProgress, downloadError } = useResourceDownload(MODELO);
+/** Sin la librería (Expo Go): el asistente explica que necesita la app instalada. */
+function useMotorNoDisponible(): Motor {
+  return {
+    estado: { fase: 'error', tipo: 'app', detalle: 'react-native-executorch no está en esta app (Expo Go)' },
+    enviar: async () => {
+      throw new Error('El asistente no está disponible en esta versión de la app.');
+    },
+    detener: () => undefined,
+  };
+}
+
+function useMotorEnTelefono(): Motor {
+  const lib = rne!;
+  const modelo = MODELO!;
+  const { resource, downloadProgress, downloadError } = lib.useResourceDownload(modelo);
   const sesion = useRef<LLMChatSession | null>(null);
   // Respuesta en curso: la sesión no se libera mientras escribe (el modelo seguiría usando memoria ya liberada)
   const enCurso = useRef<Promise<unknown> | null>(null);
@@ -112,8 +142,11 @@ export function useMotor(): Motor {
   return { estado, enviar, detener: () => sesion.current?.stop() };
 }
 
-function nuevaSesion(resource: typeof MODELO) {
-  return createLLMChatSession(resource, {
+// Se decide una sola vez al cargar la app, así el hook siempre llama a los mismos hooks
+export const useMotor: () => Motor = rne ? useMotorEnTelefono : useMotorNoDisponible;
+
+function nuevaSesion(resource: Modelo) {
+  return rne!.createLLMChatSession(resource, {
     initialMessages: [{ role: 'system', content: instrucciones() }],
     generationConfig: GENERACION,
   });

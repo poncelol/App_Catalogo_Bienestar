@@ -35,6 +35,8 @@ export type Mensaje = {
   /** Proveedores o productos que se pidieron («¿quién vende aceite?»), como tarjetas. */
   proveedores?: Grupo[];
   productos?: Grupo[];
+  /** Lo que la app entendió que se buscó («vinagre · región Metropolitana»), para que se note si tomó la pregunta anterior. */
+  entendido?: string;
 };
 
 export type PropsChat = {
@@ -51,7 +53,7 @@ export type EstadoMotor =
   | { fase: 'descargando'; progreso: number }
   | { fase: 'cargando'; progreso?: number }
   | { fase: 'listo' }
-  | { fase: 'error'; tipo: 'descarga' | 'carga' | 'navegador'; detalle: string };
+  | { fase: 'error'; tipo: 'descarga' | 'carga' | 'navegador' | 'app'; detalle: string };
 
 /** Lo que el chat necesita del modelo; cada plataforma lo implementa con su librería (motor-ia). */
 export type Motor = {
@@ -67,10 +69,15 @@ const MAX_ARTICULOS = 8;
 export function instrucciones() {
   return [
     'Eres el asistente del catálogo de artículos del Programa de Abasto Rural 2026 de Alimentación para el Bienestar.',
-    'Responde siempre en español, en 1 a 4 frases, claro y amable.',
+    'Responde siempre en español, con palabras sencillas, como le explicarías a una persona que no conoce el sistema.',
     'Cada mensaje trae los "Datos del catálogo" consultados para esa pregunta. Usa SOLO esos datos: no inventes artículos, precios ni cantidades.',
+    'Forma de responder:',
+    '- Empieza contestando directo la pregunta en una frase (por ejemplo: "Encontré 12 artículos de vinagre; el más económico es…").',
+    '- Si hay varios, menciona solo 2 o 3 de los más útiles, cada uno en una viñeta con nombre, marca, presentación y precio.',
+    '- No copies los datos tal cual ni uses claves, códigos o abreviaturas (ART., CVE, PROD., c/u): escribe frases completas.',
+    '- Termina, si aplica, diciendo que el resto está en las tarjetas de abajo. Máximo 5 líneas en total.',
     'Si no hay datos, di amablemente que solo puedes ayudar con el catálogo y da un ejemplo de pregunta, como "¿qué aceites hay?".',
-    'Los precios son el costo unitario en pesos mexicanos. Al mencionar un artículo di su nombre, marca y precio.',
+    'Los precios son por pieza, en pesos mexicanos.',
     `Hoy es ${fechaLarga(hoyISO())}.`,
   ].join('\n');
 }
@@ -98,8 +105,11 @@ function vigencia(a: Articulo) {
 }
 
 function renglon(a: Articulo) {
-  const cobertura = a.alcance === 'Nacional' ? 'nacional' : a.regiones.join(', ') || 'sin cobertura';
-  return `- ART. ${a.artId}: ${a.articulo} | ${a.marca} | ${a.presentacion} | ${a.provCorto} | ${dinero(a.costoUnit)} c/u | ${a.inventario} | ${vigencia(a)} | cobertura ${cobertura}`;
+  const cobertura = a.alcance === 'Nacional' ? 'todo el país' : a.regiones.map((s) => REGIONES[s]?.nombre ?? s).join(', ') || 'sin cobertura';
+  const inventario = a.inventario === 'Oferta' ? 'en oferta' : `inventario ${a.inventario}`;
+  // Datos con etiquetas, en frases: así el modelo los repite en palabras y no como una tabla
+  return `- ${a.articulo}, marca ${a.marca}, presentación ${a.presentacion}. Precio: ${dinero(a.costoUnit)} por pieza. `
+    + `Proveedor: ${a.provCorto}. ${inventario}, ${vigencia(a)}. Se surte en: ${cobertura}. (ART. ${a.artId})`;
 }
 
 function rango(arts: Articulo[]) {
@@ -392,7 +402,17 @@ export function entender(pregunta: string, arts: Articulo[]): Intencion {
 }
 
 /** Palabras que señalan que la pregunta sigue con el tema anterior («¿y el más caro?», «¿quién los vende?»). */
-const SEGUIMIENTO = /^\s*¿?\s*y\b|\b(lo|los|la|las|le|les|ese|esa|esos|esas|este|esta|estos|estas|ellos|ellas|mismo|misma|mismos|otro|otros|otra|otras|eso|esto)\b/;
+// «la», «los»… solo cuentan como pronombre junto a un verbo («¿quién los vende?») o en «el más barato»; como
+// artículo («artículos de la región Metropolitana») no señalan nada anterior
+const SEGUIMIENTO = new RegExp([
+  String.raw`^\s*¿?\s*y\b`,
+  String.raw`\b(ese|esa|esos|esas|este|esta|estos|estas|eso|esto|ellos|ellas|mismo|misma|mismos|mismas|otro|otros|otra|otras)\b`,
+  String.raw`\b(lo|los|la|las|le|les)\s+(vende|venden|vendes|surte|surten|tiene|tienen|tienes|maneja|manejan|ofrece|ofrecen|trae|traen|hay|consigo|encuentro|compro|pido|ordena|ordenas|muestra|muestras|da|das)\b`,
+  String.raw`^\s*¿?\s*(cual(es)?\s+(es|son)\s+)?(el|la|los|las|lo)\s+(mas|menos)\b`,
+].join('|'));
+
+/** Palabras que abren una búsqueda nueva sobre todo el catálogo («artículos de la región Metropolitana»). */
+const GENERAL = /\b(articulos?|productos?|catalogo|todo|todos|todas|cualquier|general)\b/;
 
 /**
  * Une la pregunta con la anterior cuando no trae tema propio: «¿Qué aceites hay?» → «¿quién los vende?» busca
@@ -423,8 +443,12 @@ export function conContexto(actual: Intencion, previa: Intencion | null, pregunt
       orden: i.orden ?? previa.orden,
     };
   }
-  const sigue = !tieneTema(i) && (tieneFiltros(actual) || actual.pide !== 'articulos' || SEGUIMIENTO.test(q))
-    && (actual.pide !== 'resumen' || SEGUIMIENTO.test(q));
+  // Sin tema propio sigue con el anterior si lo señala («¿quién los vende?», «¿y el más caro?») o si solo agrega
+  // un filtro («en oferta», «¿quiénes en Chiapas?»). Si dice «artículos», «productos» o «todo» sin señalar nada,
+  // es una búsqueda nueva en todo el catálogo
+  const senala = SEGUIMIENTO.test(q);
+  const sigue = !tieneTema(i) && (senala || (!GENERAL.test(q) && (tieneFiltros(actual) || actual.pide !== 'articulos')))
+    && (actual.pide !== 'resumen' || senala);
   if (!sigue) return i;
   return {
     ...i,
@@ -519,10 +543,25 @@ export function consultarCatalogo(i: Intencion, arts: Articulo[]): Consulta {
   return { ...vacia, datos: partes.join('\n\n'), articulos: tarjetas.filter((a) => !vistos.has(a.artId) && vistos.add(a.artId)) };
 }
 
+/** Lo que se buscó en palabras («Proveedores · vinagre · región Metropolitana»); vacío si fue una pregunta general. */
+export function describir(i: Intencion) {
+  if (i.pide === 'resumen') return '';
+  const partes = [
+    { proveedores: 'Proveedores', productos: 'Productos', marcas: 'Marcas', articulos: '' }[i.pide],
+    [i.marca, ...i.clave].filter(Boolean).join(' '),
+    i.proveedor && `de ${i.proveedor.nombre}`,
+    i.region && `región ${REGIONES[i.region].nombre}`,
+    i.inventario === 'Oferta' ? 'en oferta' : i.inventario && `inventario ${i.inventario}`,
+    i.vence !== undefined && `vencen en ${i.vence} días o menos`,
+    i.pide === 'articulos' && i.orden && (i.orden === 'menor' ? 'más baratos primero' : 'más caros primero'),
+  ].filter(Boolean);
+  return partes.length ? partes.join(' · ') : '';
+}
+
 /** Mensaje para el modelo: los datos consultados y la pregunta. */
 export function mensajeConDatos(pregunta: string, datos: string) {
   return datos
-    ? `Datos del catálogo:\n${datos}\n\nPregunta: ${pregunta}\n\nResponde usando solo estos datos.`
+    ? `Datos del catálogo:\n${datos}\n\nPregunta: ${pregunta}\n\nResponde usando solo estos datos, en frases sencillas y sin copiar las claves.`
     : `Pregunta: ${pregunta}\n\n(No hay datos del catálogo para esta pregunta.)`;
 }
 
@@ -554,7 +593,12 @@ export function revisarRespuesta(original: string, datos: string): { texto: stri
 
 /** Quita prefijos como «Respuesta:» y las líneas repetidas seguidas (los modelos pequeños a veces se ciclan). */
 function pulir(texto: string) {
-  const lineas = texto.replace(/^\s*(respuesta|asistente)\s*:\s*/i, '').split('\n');
+  const lineas = texto
+    .replace(/^\s*(respuesta|asistente)\s*:\s*/i, '')
+    // Claves internas que el modelo a veces copia: para el usuario no dicen nada (están en las tarjetas)
+    .replace(/\s*\(?\b(ART|CVE|PROD)\.?\s*\d+\)?/g, '')
+    .replace(/\bc\/u\b/gi, 'por pieza')
+    .split('\n');
   return lineas.filter((l, i) => !l.trim() || l.trim() !== lineas[i - 1]?.trim()).join('\n').trim();
 }
 

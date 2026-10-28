@@ -12,7 +12,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { contar, entero } from '@/data/abasto';
 import { useAbasto } from '@/data/abasto-context';
 import {
-  conContexto, consultarCatalogo, entender, limpiarRespuesta, mensajeConDatos, revisarRespuesta, tieneFiltros, tieneTema,
+  conContexto, consultarCatalogo, describir, entender, limpiarRespuesta, mensajeConDatos, revisarRespuesta, tieneFiltros, tieneTema,
   type EstadoMotor, type Grupo, type Intencion, type Mensaje, type PropsChat,
 } from '@/data/asistente';
 import { imagenProveedor } from '@/data/imagenes';
@@ -93,6 +93,7 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerPro
     setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, {
       id, rol: 'asistente', texto: '', pendiente: true,
       articulos: consulta.articulos, proveedores: consulta.proveedores, productos: consulta.productos,
+      entendido: describir(intencion),
     }]);
     const cambiar = (c: Partial<Mensaje>) => setMensajes((m) => m.map((x) => (x.id === id ? { ...x, ...c } : x)));
     // El texto llega palabra por palabra: se muestra a lo más cada 80 ms, no en cada palabra (redibujar toda la
@@ -129,7 +130,9 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerPro
   if (motor.estado.fase !== 'listo') return <Preparando estado={motor.estado} onReintentar={onReintentar} />;
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    // También en Android: la hoja es un Modal de pantalla completa (edge-to-edge) y el sistema no la encoge al abrir
+    // el teclado, así que la caja de texto quedaba tapada. Si la ventana sí se encoge, el padding calculado es 0
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
       <Conversacion mensajes={mensajes} sugerencias={sugerencias} onEnviar={enviar} acciones={{ onVerArticulo, onVerProveedor, onVerProducto }} />
       <Entrada generando={generando} onEnviar={enviar} onDetener={motor.detener} />
     </KeyboardAvoidingView>
@@ -142,6 +145,10 @@ const ERRORES = {
   navegador: [
     'Este navegador no puede correr el asistente',
     'Necesita WebGPU: ábrelo en Chrome o Edge recientes, de preferencia en una computadora, o usa la app de Android o iPhone.',
+  ],
+  app: [
+    'El asistente necesita la app instalada',
+    'En Expo Go no está disponible porque el modelo de IA usa código nativo. Instala la app generada con EAS (APK) o usa la versión web en Chrome o Edge.',
   ],
 } as const;
 
@@ -157,7 +164,7 @@ function Preparando({ estado, onReintentar }: { estado: Exclude<EstadoMotor, { f
         <Text style={[styles.textoEstado, { color: t.textSecondary }]}>{texto}</Text>
         {/* El mensaje técnico, para poder reportar qué falló */}
         {estado.detalle ? <Text style={[styles.detalle, { color: t.muted }]} selectable numberOfLines={4}>Detalle: {estado.detalle}</Text> : null}
-        {estado.tipo !== 'navegador' ? (
+        {estado.tipo !== 'navegador' && estado.tipo !== 'app' ? (
           <Pressable onPress={onReintentar} style={({ pressed }) => [styles.botonPrincipal, { backgroundColor: t.accent }, pressed && ui.presionado]}>
             <Text style={styles.botonPrincipalTexto}>Reintentar</Text>
           </Pressable>
@@ -255,6 +262,12 @@ function Burbuja({ m, acciones, onReintentar }: { m: Mensaje; acciones: Acciones
   const extra = (m.articulos?.length ?? 0) - TARJETAS;
   return (
     <View style={styles.respuesta}>
+      {m.entendido ? (
+        <View style={styles.entendido}>
+          <Icono nombre="buscar" color={t.muted} tam={12} />
+          <Text style={[styles.entendidoTexto, { color: t.muted }]} numberOfLines={2}>Busqué: {m.entendido}</Text>
+        </View>
+      ) : null}
       <View style={[styles.burbuja, styles.asistente, { backgroundColor: t.backgroundElement, borderColor: t.border }]}
         accessibilityLiveRegion={m.pendiente ? 'none' : 'polite'}>
         {m.texto ? <TextoFormateado texto={m.texto} color={m.error ? t.danger : t.text} /> : null}
@@ -405,6 +418,8 @@ const styles = StyleSheet.create({
   usuario: { alignSelf: 'flex-end', borderBottomRightRadius: 6 },
   asistente: { alignSelf: 'flex-start', borderWidth: 1, borderBottomLeftRadius: 6, gap: Spacing.two },
   respuesta: { gap: Spacing.two },
+  entendido: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.one },
+  entendidoTexto: { flex: 1, fontSize: 12 },
   texto: { fontSize: 15, lineHeight: 21 },
   advertencia: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, borderRadius: 8, padding: 8 },
   advertenciaTexto: { flex: 1, fontSize: 12, lineHeight: 16 },
