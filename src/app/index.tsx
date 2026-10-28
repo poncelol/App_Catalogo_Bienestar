@@ -5,6 +5,7 @@ import { LayoutAnimation, Pressable, RefreshControl, ScrollView, StyleSheet, Tex
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, G } from 'react-native-svg';
 
+import { BotonAsistente } from '@/components/abasto/asistente';
 import { agruparProductos } from '@/components/abasto/catalogo';
 import { MapaRegiones } from '@/components/abasto/mapa';
 import { SelectorTema } from '@/components/abasto/selector-tema';
@@ -186,6 +187,7 @@ export default function Inicio() {
           </View>
         </View>
       </ScrollView>
+      <BotonAsistente />
     </View>
   );
 }

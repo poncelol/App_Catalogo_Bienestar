@@ -32,6 +32,11 @@ export const ICONOS = {
   orden: { ios: 'arrow.up.arrow.down', android: 'swap_vert', web: 'swap_vert' },
   mapa: { ios: 'map', android: 'map', web: 'map' },
   ubicacion: { ios: 'mappin.and.ellipse', android: 'location_on', web: 'location_on' },
+  asistente: { ios: 'sparkles', android: 'auto_awesome', web: 'auto_awesome' },
+  enviar: { ios: 'arrow.up', android: 'arrow_upward', web: 'arrow_upward' },
+  detener: { ios: 'stop.fill', android: 'stop', web: 'stop' },
+  nueva: { ios: 'square.and.pencil', android: 'edit_square', web: 'edit_square' },
+  descargar: { ios: 'arrow.down.circle', android: 'download', web: 'download' },
   // Ilustraciones de productos (ver ilustracion-producto.tsx)
   pAceite: { ios: 'drop', android: 'water_drop', web: 'water_drop' },
   pAgua: { ios: 'waterbottle', android: 'water_full', web: 'water_full' },

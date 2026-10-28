@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 
+import { AsistenteProvider } from '@/components/abasto/asistente';
 import AppTabs from '@/components/app-tabs';
 import { AbastoProvider } from '@/data/abasto-context';
 import { TemaProvider } from '@/data/tema';
@@ -28,7 +29,9 @@ function ConTema() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AbastoProvider>
-        <AppTabs />
+        <AsistenteProvider>
+          <AppTabs />
+        </AsistenteProvider>
       </AbastoProvider>
     </ThemeProvider>
   );
