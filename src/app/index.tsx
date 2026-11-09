@@ -37,13 +37,6 @@ function coloresInventario(tipos: Conteo[], esquema: 'light' | 'dark') {
 
 const distintos = <T,>(xs: T[]) => new Set(xs).size;
 
-/** El grupo con más valores distintos (el proveedor con más marcas, el producto con más proveedores…). */
-function conMasDistintos(arts: Articulo[], grupo: (a: Articulo) => string, valor: (a: Articulo) => string) {
-  const m = new Map<string, Set<string>>();
-  for (const a of arts) (m.get(grupo(a)) ?? m.set(grupo(a), new Set()).get(grupo(a))!).add(valor(a));
-  return [...m].map(([nombre, v]) => ({ nombre, n: v.size })).sort((x, y) => y.n - x.n || x.nombre.localeCompare(y.nombre))[0];
-}
-
 /**
  * Inicio: resumen ejecutivo del catálogo. Cada sección muestra lo esencial, se despliega con «Ver detalle»
  * y lleva a su pestaña para consultar todo.
@@ -100,9 +93,6 @@ export default function Inicio() {
       const n = distintos(suyos.map((a) => a.negociacion));
       return [clave, `${entero(distintos(suyos.map((a) => a.cve)))} prov. · ${entero(n)} ${n === 1 ? 'hoja' : 'hojas'} neg.`];
     }));
-    const provMarcas = conMasDistintos(arts, (a) => a.provCorto, (a) => a.marca);
-    const marcaProductos = conMasDistintos(arts, (a) => a.marca, (a) => a.prod);
-    const prodProveedores = conMasDistintos(arts, (a) => a.producto, (a) => a.cve);
 
     return {
       total: nArt(arts),
@@ -116,15 +106,7 @@ export default function Inicio() {
         { clave: 'Nacional', proveedores: cveNacional.size, articulos: nArt(arts.filter((a) => cveNacional.has(a.cve))) },
         { clave: 'Regional', proveedores: cveRegional.size, articulos: nArt(arts.filter((a) => cveRegional.has(a.cve))) },
       ],
-      // Texto de cada hallazgo: las posiciones nones van en negritas
-      hallazgos: arts.length ? [
-        { color: '#9b2247', icono: 'proveedor', partes: ['El proveedor con más artículos es ', proveedores[0].etiqueta, ', con ', entero(proveedores[0].valor), '.'] },
-        { color: '#1e5b4f', icono: 'producto', partes: ['El producto con más artículos es ', productos[0].nombre, ', con ', entero(productos[0].articulos), '.'] },
-        { color: '#a57f2c', icono: 'marca', partes: ['La marca con más artículos es ', marcas[0].etiqueta, ', con ', entero(marcas[0].valor), '.'] },
-        { color: '#002f2a', icono: 'marca', partes: ['', provMarcas.nombre, ' es el proveedor con más marcas: maneja ', entero(provMarcas.n), '.'] },
-        { color: '#a57f2c', icono: 'producto', partes: ['', marcaProductos.nombre, ' es la marca con más productos distintos: ', entero(marcaProductos.n), '.'] },
-        { color: '#611232', icono: 'estrella', partes: ['', prodProveedores.nombre, ' es el producto con más proveedores: ', entero(prodProveedores.n), ' lo surten.'] },
-      ] as const : [],
+      marcas: marcas.length,
       // Por tipo de inventario como en el tablero: artículos distintos de cada tipo (un artículo PAR que también tiene
       // una negociación en oferta cuenta en los dos). Se muestran sin porcentajes
       inventario,
@@ -163,12 +145,15 @@ export default function Inicio() {
 
           {datos ? (
             <>
-              <BannerCifras cifras={[
-                { etiqueta: 'Proveedores', icono: 'proveedor', valor: r.proveedores.length, fondo: '#1e5b4f', onPress: () => router.navigate('/proveedores') },
-                { etiqueta: 'Productos', icono: 'producto', valor: r.productos.length, fondo: '#9b2247', onPress: () => router.navigate('/productos') },
-                { etiqueta: 'Artículos', icono: 'articulo', valor: r.total, fondo: '#a57f2c', onPress: () => verArticulos({}) },
-                { etiqueta: 'Ofertas vigentes', icono: 'estrella', valor: r.ofertas, fondo: '#611232', onPress: () => verArticulos({ inventario: 'Oferta' }) },
-              ]} />
+              <PanelCifras
+                cifras={[
+                  { etiqueta: 'Proveedores', icono: 'proveedor', valor: r.proveedores.length, onPress: () => router.navigate('/proveedores') },
+                  { etiqueta: 'Productos', icono: 'producto', valor: r.productos.length, onPress: () => router.navigate('/productos') },
+                  { etiqueta: 'Artículos', icono: 'articulo', valor: r.total, onPress: () => verArticulos({}) },
+                  { etiqueta: 'Ofertas', icono: 'estrella', valor: r.ofertas, onPress: () => verArticulos({ inventario: 'Oferta' }) },
+                ]}
+                pie={`${entero(r.marcas)} marcas registradas`}
+              />
 
               {r.vencidos || r.negPronto ? (
                 <View style={[styles.aviso, { backgroundColor: t.backgroundElement, borderColor: t.border, borderLeftColor: t.danger }]}>
@@ -184,58 +169,50 @@ export default function Inicio() {
                 </View>
               ) : null}
 
-              <SeccionResumen numero="1" titulo="Lectura rápida" descripcion="Lo más importante del programa de un vistazo."
-                resumen={<Hallazgos items={r.hallazgos} />} />
-
-              <SeccionResumen numero="2" titulo="Hojas de negociación"
-                descripcion="Arriba las hojas PAR y abajo las de Oferta, por cobertura nacional y regional. Toque un recuadro para ver sus hojas."
-                resumen={<HojasNegociacion grupos={r.hojas} />} />
-
-              <SeccionResumen numero="3" titulo="Proveedores y cobertura"
-                descripcion="Un proveedor con artículos nacionales cuenta solo en Nacional; Regional son los que solo tienen cobertura regional."
-                accion={`Ver los ${entero(r.proveedores.length)} proveedores`}
-                onAccion={() => router.navigate('/proveedores')}
-                textoDetalle={`Mostrar todos (${entero(r.proveedores.length)})`}
-                resumen={
-                  <>
-                    <View style={styles.recuadros}>
-                      {r.coberturaProveedores.map((c) => (
-                        <View key={c.clave} style={[styles.recuadro, { backgroundColor: t.background, borderLeftColor: c.clave === 'Nacional' ? t.green : t.gold }]}>
-                          <Text style={[styles.recuadroEtq, { color: t.textSecondary }]}>Proveedores · Cobertura {c.clave.toLowerCase()}</Text>
-                          <Text style={[styles.recuadroValor, { color: t.text }]}>{entero(c.proveedores)}</Text>
-                          <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{entero(c.articulos)} artículos</Text>
-                        </View>
-                      ))}
-                    </View>
-                    <Ranking items={r.proveedores.slice(0, 3)} total={r.total} notas={r.notasProveedor} onPress={(c) => verArticulos({ proveedor: c.clave })} />
-                  </>
-                }
-                detalle={<Ranking items={r.proveedores.slice(3)} total={r.total} desde={4} notas={r.notasProveedor} onPress={(c) => verArticulos({ proveedor: c.clave })} />}
-              />
-
-              <SeccionResumen numero="4" titulo="Productos y artículos"
-                descripcion="Toque un tipo de inventario para ver sus artículos."
+              <SeccionResumen
+                icono="articulo"
+                titulo="Artículos"
+                descripcion="Composición del catálogo por tipo de inventario y estado de vigencia."
                 accion="Consultar el catálogo de artículos"
                 onAccion={() => verArticulos({})}
-                textoDetalle={`Mostrar todos los productos (${entero(r.productos.length)})`}
                 resumen={
                   <>
                     <Dona items={r.inventario} colores={colorInv} otro={t.muted} centro={r.total} />
                     <Leyenda items={r.inventario} total={r.total} colores={colorInv} otro={t.muted} sinPorcentaje detalle={r.detalleInventario}
                       onPress={(c) => verArticulos({ inventario: c.clave })} />
-                    <Tabla filas={[
-                      ['Vigentes (más de 30 días)', r.vigentes, t.ok],
-                      ['Vencen en 30 días o menos', r.pronto, t.gold],
-                      ['Vigencia vencida', r.vencidos, t.danger],
-                      ['Sin fecha de vigencia', r.sinFecha, t.muted],
-                    ]} total={r.total} titulo="Estado de vigencia" />
-                    <Ranking titulo="Productos con más artículos" items={r.productos.slice(0, 3).map((p) => ({ clave: p.prod, etiqueta: p.nombre, valor: p.articulos }))} total={r.total} />
                   </>
                 }
-                detalle={<Ranking items={r.productos.slice(3).map((p) => ({ clave: p.prod, etiqueta: p.nombre, valor: p.articulos }))} total={r.total} desde={4} />}
+                detalle={
+                  <Tabla filas={[
+                    ['Vigentes (más de 30 días)', r.vigentes, t.ok],
+                    ['Vencen en 30 días o menos', r.pronto, t.gold],
+                    ['Vigencia vencida', r.vencidos, t.danger],
+                    ['Sin fecha de vigencia', r.sinFecha, t.muted],
+                  ]} total={r.total} titulo="Estado de vigencia" />
+                }
               />
 
-              <SeccionResumen numero="5" titulo="Unidades operativas"
+              <SeccionResumen
+                icono="lista"
+                titulo="Hojas de negociación"
+                descripcion="PAR y Oferta, por cobertura nacional y regional. Toque un recuadro para ver sus hojas."
+                resumen={<HojasNegociacion grupos={r.hojas} />}
+              />
+
+              <SeccionResumen
+                icono="producto"
+                titulo="Productos"
+                descripcion={`${entero(r.productos.length)} productos agrupan los artículos del catálogo.`}
+                accion={`Ver los ${entero(r.productos.length)} productos`}
+                onAccion={() => router.navigate('/productos')}
+                textoDetalle={`Mostrar todos (${entero(r.productos.length)})`}
+                resumen={<Ranking items={r.productos.slice(0, 3).map((p) => ({ clave: p.prod, etiqueta: p.nombre, valor: p.articulos }))} total={r.total} />}
+                detalle={<Ranking continua items={r.productos.slice(3).map((p) => ({ clave: p.prod, etiqueta: p.nombre, valor: p.articulos }))} total={r.total} />}
+              />
+
+              <SeccionResumen
+                icono="ubicacion"
+                titulo="Cobertura regional"
                 descripcion={`${Object.keys(REGIONES).length} gerencias regionales y ${unidades} unidades operativas. Toque una región del mapa para consultarla.`}
                 accion="Ver regiones y unidades operativas"
                 onAccion={() => router.navigate('/regiones')}
@@ -255,6 +232,30 @@ export default function Inicio() {
                     </Text>
                   </>
                 }
+              />
+
+              <SeccionResumen
+                icono="proveedor"
+                titulo="Proveedores"
+                descripcion={`${entero(r.proveedores.length)} proveedores con artículos vigentes.`}
+                accion={`Ver los ${entero(r.proveedores.length)} proveedores`}
+                onAccion={() => router.navigate('/proveedores')}
+                textoDetalle={`Mostrar todos (${entero(r.proveedores.length)})`}
+                resumen={
+                  <>
+                    <View style={styles.recuadros}>
+                      {r.coberturaProveedores.map((c) => (
+                        <View key={c.clave} style={[styles.recuadro, { backgroundColor: t.background, borderLeftColor: c.clave === 'Nacional' ? t.green : t.gold }]}>
+                          <Text style={[styles.recuadroEtq, { color: t.textSecondary }]}>Cobertura {c.clave.toLowerCase()}</Text>
+                          <Text style={[styles.recuadroValor, { color: t.text }]}>{entero(c.proveedores)}</Text>
+                          <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{entero(c.articulos)} artículos</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <Ranking items={r.proveedores.slice(0, 3)} total={r.total} notas={r.notasProveedor} onPress={(c) => verArticulos({ proveedor: c.clave })} />
+                  </>
+                }
+                detalle={<Ranking continua items={r.proveedores.slice(3)} total={r.total} notas={r.notasProveedor} onPress={(c) => verArticulos({ proveedor: c.clave })} />}
               />
             </>
           ) : null}
@@ -307,45 +308,24 @@ function EncabezadoInstitucional() {
   );
 }
 
-/** Las cuatro cifras principales del tablero, cada una con su color institucional. */
-function BannerCifras({ cifras }: {
-  cifras: { etiqueta: string; icono: 'proveedor' | 'producto' | 'articulo' | 'estrella'; valor: number; fondo: string; onPress: () => void }[];
+/** Cifras generales en un solo panel con divisiones. */
+function PanelCifras({ cifras, pie }: {
+  cifras: { etiqueta: string; icono: 'proveedor' | 'producto' | 'articulo' | 'estrella'; valor: number; onPress: () => void }[]; pie: string;
 }) {
-  return (
-    <View style={styles.banner}>
-      {cifras.map((c) => {
-        // En oro, el texto blanco casi no se lee
-        const tinta = c.fondo === '#a57f2c' ? '#002f2a' : '#ffffff';
-        return (
-          <Pressable key={c.etiqueta} onPress={c.onPress} accessibilityRole="button" accessibilityLabel={`${c.etiqueta}: ${c.valor}`}
-            style={({ pressed }) => [styles.bannerCifra, { backgroundColor: c.fondo }, pressed && ui.presionado]}>
-            <Icono nombre={c.icono} color={tinta} tam={22} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.bannerEtq, { color: tinta }]} numberOfLines={1}>{c.etiqueta}</Text>
-              <Text style={[styles.bannerValor, { color: tinta }]}>{entero(c.valor)}</Text>
-            </View>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-/** Los hallazgos de «Lectura rápida»: en cada texto, las posiciones nones van en negritas. */
-function Hallazgos({ items }: { items: readonly { color: string; icono: 'proveedor' | 'producto' | 'marca' | 'estrella'; partes: readonly string[] }[] }) {
   const t = useTheme();
   return (
-    <View style={{ gap: Spacing.two }}>
-      {items.map((h) => (
-        <View key={h.partes.join('')} style={[styles.hallazgo, { backgroundColor: t.background }]}>
-          <View style={[styles.hallazgoIco, { backgroundColor: h.color }]}>
-            <Icono nombre={h.icono} color="#ffffff" tam={15} />
-          </View>
-          <Text style={[styles.hallazgoTexto, { color: t.text }]}>
-            {h.partes.map((p, i) => <Text key={i} style={i % 2 ? { fontWeight: '700' } : undefined}>{p}</Text>)}
-          </Text>
-        </View>
-      ))}
+    <View style={[styles.panel, { backgroundColor: t.backgroundElement, borderColor: t.border }]}>
+      <View style={styles.cifras}>
+        {cifras.map((c, i) => (
+          <Pressable key={c.etiqueta} onPress={c.onPress} accessibilityRole="button" accessibilityLabel={`${c.etiqueta}: ${c.valor}`}
+            style={({ pressed }) => [styles.cifra, i > 0 && { borderLeftColor: t.border, borderLeftWidth: StyleSheet.hairlineWidth }, pressed && ui.presionado]}>
+            <Icono nombre={c.icono} color={t.accent} tam={20} />
+            <Text style={[styles.cifraValor, { color: t.text }]} numberOfLines={1} adjustsFontSizeToFit>{entero(c.valor)}</Text>
+            <Text style={[styles.cifraEtq, { color: t.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit>{c.etiqueta}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={[styles.panelPie, { color: t.muted, borderTopColor: t.border }]}>{pie}</Text>
     </View>
   );
 }
@@ -383,8 +363,8 @@ function HojasNegociacion({ grupos }: { grupos: GrupoHojas[] }) {
 }
 
 /** Sección numerada con resumen visible y detalle que se despliega en el mismo lugar. */
-function SeccionResumen({ numero, titulo, descripcion, resumen, detalle, accion, onAccion, textoDetalle = 'Ver detalle' }: {
-  numero: string;
+function SeccionResumen({ icono, titulo, descripcion, resumen, detalle, accion, onAccion, textoDetalle = 'Ver detalle' }: {
+  icono: 'articulo' | 'lista' | 'producto' | 'ubicacion' | 'proveedor';
   titulo: string;
   descripcion: string;
   resumen: ReactNode;
@@ -402,7 +382,9 @@ function SeccionResumen({ numero, titulo, descripcion, resumen, detalle, accion,
   return (
     <View style={[styles.seccion, { backgroundColor: t.backgroundElement, borderColor: t.border }]}>
       <View style={styles.seccionH}>
-        <Text style={[styles.numero, { color: DORADO }]}>{numero}</Text>
+        <View style={[styles.seccionIco, { backgroundColor: t.accentSoft }]}>
+          <Icono nombre={icono} color={t.accent} tam={18} />
+        </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.seccionTitulo, { color: t.text }]}>{titulo}</Text>
           <Text style={[styles.seccionDesc, { color: t.textSecondary }]}>{descripcion}</Text>
@@ -512,9 +494,9 @@ function Tabla({ filas, total, titulo }: { filas: [string, number, string][]; to
   );
 }
 
-/** Lista numerada de los primeros lugares con cantidad y barra de proporción. */
-function Ranking({ items, total, desde = 1, titulo, onPress, notas }: {
-  items: Conteo[]; total: number; desde?: number; titulo?: string; onPress?: (c: Conteo) => void; notas?: Record<string, string>;
+/** Los primeros lugares con cantidad y barra de proporción. `continua`: sigue a otra lista ya mostrada. */
+function Ranking({ items, total, continua = false, titulo, onPress, notas }: {
+  items: Conteo[]; total: number; continua?: boolean; titulo?: string; onPress?: (c: Conteo) => void; notas?: Record<string, string>;
 }) {
   const t = useTheme();
   const max = Math.max(...items.map((i) => i.valor), 1);
@@ -523,8 +505,7 @@ function Ranking({ items, total, desde = 1, titulo, onPress, notas }: {
       {titulo ? <Text style={[styles.tablaTitulo, { color: t.muted }]}>{titulo.toUpperCase()}</Text> : null}
       {items.map((c, i) => (
         <Pressable key={c.clave} onPress={onPress ? () => onPress(c) : undefined} disabled={!onPress}
-          style={({ pressed }) => [styles.rank, (i > 0 || desde > 1) && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth }, pressed && ui.presionado]}>
-          <Text style={[styles.rankN, { color: t.muted }]}>{desde + i}</Text>
+          style={({ pressed }) => [styles.rank, (i > 0 || continua) && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth }, pressed && ui.presionado]}>
           <View style={{ flex: 1, gap: 5 }}>
             <View style={styles.rankFila}>
               <Text style={[styles.rankNombre, { color: t.text }]} numberOfLines={1}>{c.etiqueta}</Text>
@@ -580,13 +561,6 @@ const styles = StyleSheet.create({
   cuerpo: { padding: Spacing.three, gap: Spacing.three, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   buscar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 13 },
   buscarTexto: { fontSize: 15, flexShrink: 1 },
-  banner: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-  bannerCifra: { flexBasis: '47%', flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 8, padding: Spacing.three },
-  bannerEtq: { fontSize: 12, fontWeight: '600' },
-  bannerValor: { fontSize: 26, fontWeight: '700' },
-  hallazgo: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, borderRadius: 8, padding: 10 },
-  hallazgoIco: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  hallazgoTexto: { flex: 1, fontSize: 14, lineHeight: 20 },
   recuadros: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   recuadro: { flexBasis: '47%', flexGrow: 1, borderRadius: 8, borderLeftWidth: 4, padding: 12 },
   recuadroEtq: { fontSize: 12, fontWeight: '600' },
@@ -594,12 +568,18 @@ const styles = StyleSheet.create({
   recuadroSub: { fontSize: 12, lineHeight: 16 },
   hojas: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 8, maxHeight: 260, overflow: 'hidden' },
   hoja: { fontSize: 13, paddingHorizontal: Spacing.three, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
+  panel: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
+  cifras: { flexDirection: 'row', paddingVertical: Spacing.three },
+  cifra: { flex: 1, alignItems: 'center', gap: 4, paddingHorizontal: 4 },
+  cifraValor: { fontSize: 24, fontWeight: '700' },
+  cifraEtq: { fontSize: 12, fontWeight: '600' },
+  panelPie: { fontSize: 12, textAlign: 'center', paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  seccionIco: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   aviso: { borderWidth: 1, borderLeftWidth: 4, borderRadius: 8, padding: Spacing.three, gap: 4 },
   avisoEtq: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
   avisoTexto: { fontSize: 14, lineHeight: 20 },
-  seccion: { borderWidth: 1, borderRadius: 8, overflow: 'hidden' },
-  seccionH: { flexDirection: 'row', gap: Spacing.three, padding: Spacing.three, alignItems: 'flex-start' },
-  numero: { fontSize: 26, fontWeight: '300', lineHeight: 30 },
+  seccion: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
+  seccionH: { flexDirection: 'row', gap: Spacing.three, padding: Spacing.three, alignItems: 'center' },
   seccionTitulo: { fontSize: 18, fontWeight: '700' },
   seccionDesc: { fontSize: 13, marginTop: 2, lineHeight: 18 },
   regla: { height: StyleSheet.hairlineWidth, marginHorizontal: Spacing.three },
@@ -623,7 +603,6 @@ const styles = StyleSheet.create({
   tablaValor: { fontSize: 14, fontWeight: '700', minWidth: 48, textAlign: 'right' },
   tablaPct: { fontSize: 12, minWidth: 36, textAlign: 'right' },
   rank: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, paddingVertical: 10 },
-  rankN: { fontSize: 13, fontWeight: '700', width: 18, textAlign: 'center' },
   rankFila: { flexDirection: 'row', gap: Spacing.two },
   rankNombre: { flex: 1, fontSize: 14, fontWeight: '500' },
   rankValor: { fontSize: 14, fontWeight: '700' },
