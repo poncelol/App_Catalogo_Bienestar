@@ -5,13 +5,17 @@
 import type { ChatCompletionMessageParam, MLCEngine } from '@mlc-ai/web-llm';
 import { useEffect, useRef, useState } from 'react';
 
-import { instrucciones, limpiarRespuesta, type EstadoMotor, type Motor } from '@/data/asistente';
+import { instrucciones, limpiarRespuesta, RESPUESTA_MAX, type EstadoMotor, type Motor } from '@/data/asistente';
 
 // Con números de 16 bits si la tarjeta gráfica los admite (más rápido y ligero); si no, de 32
 const MODELO_F16 = 'Qwen3-0.6B-q4f16_1-MLC';
 const MODELO_F32 = 'Qwen3-0.6B-q4f32_1-MLC';
 /** Preguntas anteriores (con sus datos) que se le recuerdan al modelo; más llenaría su memoria de contexto. */
 const TURNOS_PREVIOS = 2;
+/** Memoria de contexto del modelo en WebLLM (context_window_size de Qwen 3 0.6B), en tokens. */
+const CONTEXTO = 4096;
+/** Lo que se aparta para las preguntas y respuestas anteriores que se le recuerdan. */
+const RESERVA_HISTORIAL = TURNOS_PREVIOS * (60 + RESPUESTA_MAX);
 
 export const INFO_MOTOR = { tamano: '500 MB', lugar: 'tu navegador' };
 
@@ -106,7 +110,7 @@ export function useMotor(): Motor {
         top_p: 0.8,
         frequency_penalty: 0.3,
         presence_penalty: 0, // explícito: si falta, WebLLM avisa en cada pregunta
-        max_tokens: 300,
+        max_tokens: RESPUESTA_MAX,
         extra_body: { enable_thinking: false },
       });
       let salida = '';
@@ -148,5 +152,5 @@ export function useMotor(): Motor {
     cargado?.interruptGenerate();
   };
 
-  return { estado, enviar, detener };
+  return { estado, enviar, detener, contexto: CONTEXTO - RESERVA_HISTORIAL };
 }

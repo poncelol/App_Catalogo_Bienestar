@@ -32,6 +32,7 @@ export const ICONOS = {
   orden: { ios: 'arrow.up.arrow.down', android: 'swap_vert', web: 'swap_vert' },
   mapa: { ios: 'map', android: 'map', web: 'map' },
   ubicacion: { ios: 'mappin.and.ellipse', android: 'location_on', web: 'location_on' },
+  estrella: { ios: 'star', android: 'star', web: 'star' },
   asistente: { ios: 'sparkles', android: 'auto_awesome', web: 'auto_awesome' },
   enviar: { ios: 'arrow.up', android: 'arrow_upward', web: 'arrow_upward' },
   detener: { ios: 'stop.fill', android: 'stop', web: 'stop' },

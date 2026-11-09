@@ -10,7 +10,7 @@ import { getNetworkStateAsync, NetworkStateType } from 'expo-network';
 import { useEffect, useRef, useState } from 'react';
 import type { LLMChatSession } from 'react-native-executorch';
 
-import { instrucciones, limpiarRespuesta, type EstadoMotor, type Motor } from '@/data/asistente';
+import { instrucciones, limpiarRespuesta, RESPUESTA_MAX, type EstadoMotor, type Motor } from '@/data/asistente';
 
 type Executorch = typeof import('react-native-executorch');
 
@@ -33,9 +33,9 @@ const MODELO = rne?.models.llm.QWEN3_0_6B.XNNPACK_8DA4W;
 type Modelo = NonNullable<typeof MODELO>;
 // Sin razonamiento visible (más rápido), casi sin aleatoriedad para que se apegue a los datos, y con castigo a
 // repetir para que no se cicle
-const GENERACION = { enableThinking: false, temperature: 0.2, topP: 0.8, topK: 20, repetitionPenalty: 1.1, maxNewTokens: 300 };
-/** Con más de esto de la memoria de contexto ocupada, se empieza otra sesión antes de la siguiente pregunta. */
-const USO_MAXIMO = 0.5;
+const GENERACION = { enableThinking: false, temperature: 0.2, topP: 0.8, topK: 20, repetitionPenalty: 1.1, maxNewTokens: RESPUESTA_MAX };
+/** Memoria de contexto que se supone mientras la sesión no la informa (la del modelo exportado suele ser mayor). */
+const CONTEXTO_INICIAL = 2048;
 
 export const INFO_MOTOR = { tamano: '520 MB', lugar: 'tu teléfono' };
 
@@ -59,6 +59,7 @@ function useMotorNoDisponible(): Motor {
       throw new Error('El asistente no está disponible en esta versión de la app.');
     },
     detener: () => undefined,
+    contexto: 0,
   };
 }
 
@@ -71,6 +72,7 @@ function useMotorEnTelefono(): Motor {
   const enCurso = useRef<Promise<unknown> | null>(null);
   const [listo, setListo] = useState(false);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [contexto, setContexto] = useState(CONTEXTO_INICIAL);
 
   useEffect(() => {
     if (!resource) return;
@@ -79,6 +81,7 @@ function useMotorEnTelefono(): Motor {
       .then((s) => {
         if (vivo) {
           sesion.current = s;
+          setContexto(s.getKVCacheState().maxContextLen);
           setListo(true);
         } else {
           s.dispose();
@@ -112,8 +115,9 @@ function useMotorEnTelefono(): Motor {
       sesion.current = null;
       sesion.current = await nuevaSesion(resource);
     };
-    // Cada pregunta lleva sus datos: la memoria de contexto se llena en pocas preguntas y entonces se empieza de nuevo
-    if (sesion.current.getKVCacheState().usageRatio > USO_MAXIMO) await reiniciar();
+    // Cada pregunta lleva sus datos: si lo que queda de memoria no alcanza para ellos y la respuesta, se empieza
+    // una sesión nueva (las preguntas anteriores ya no hacen falta: la app guarda el tema de la conversación)
+    if (sesion.current.getKVCacheState().remainingTokens < Math.ceil(mensaje.length / 2.6) + RESPUESTA_MAX) await reiniciar();
     const preguntar = () => {
       let crudo = '';
       const p = sesion.current!.sendMessage(mensaje, (token) => {
@@ -139,7 +143,8 @@ function useMotorEnTelefono(): Motor {
     return { texto: final && typeof final.content === 'string' ? limpiarRespuesta(final.content) : '', cancelado: false };
   };
 
-  return { estado, enviar, detener: () => sesion.current?.stop() };
+  // Lo que ocupan las instrucciones ya está contado en presupuestoDatos
+  return { estado, enviar, detener: () => sesion.current?.stop(), contexto };
 }
 
 // Se decide una sola vez al cargar la app, así el hook siempre llama a los mismos hooks

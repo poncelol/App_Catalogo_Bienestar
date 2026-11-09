@@ -12,8 +12,8 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { contar, entero } from '@/data/abasto';
 import { useAbasto } from '@/data/abasto-context';
 import {
-  conContexto, consultarCatalogo, describir, entender, limpiarRespuesta, mensajeConDatos, revisarRespuesta, tieneFiltros, tieneTema,
-  type EstadoMotor, type Grupo, type Intencion, type Mensaje, type PropsChat,
+  consultarCatalogo, describir, limpiarRespuesta, mensajeConDatos, revisarRespuesta, tieneFiltros, tieneTema,
+  planear, presupuestoDatos, type EstadoMotor, type Grupo, type Intencion, type Mensaje, type PropsChat,
 } from '@/data/asistente';
 import { imagenProveedor } from '@/data/imagenes';
 import { useTheme } from '@/hooks/use-theme';
@@ -66,6 +66,7 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerPro
       'Artículos en oferta que vencen en 30 días',
       proveedor ? `¿Qué productos vende ${proveedor}?` : 'Resumen del catálogo',
       '¿Qué proveedores venden frijoles en la región Sureste?',
+      'Compara los aceites Patrona y Cristal',
     ];
   }, [datos]);
 
@@ -83,8 +84,9 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerPro
     }
     ocupado.current = true;
     // Primero la app entiende la pregunta (unida a la anterior si sigue con su tema) y consulta el catálogo
-    const intencion = conContexto(entender(q, arts), previa.current, q);
-    const consulta = consultarCatalogo(intencion, arts);
+    const intencion = planear(q, previa.current, arts);
+    // Con tanto detalle como quepa en la memoria del modelo de este dispositivo
+    const consulta = consultarCatalogo(intencion, arts, presupuestoDatos(motor.contexto));
     if (tieneTema(intencion) || tieneFiltros(intencion)) previa.current = intencion;
 
     const id = nuevoId();

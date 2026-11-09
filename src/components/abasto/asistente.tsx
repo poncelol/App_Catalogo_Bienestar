@@ -55,6 +55,8 @@ export function AsistenteProvider({ children }: { children: ReactNode }) {
   return (
     <Contexto.Provider value={() => setAbierto(true)}>
       {children}
+      {/* Una sola vez, encima de las pestañas: así aparece en todas las pantallas */}
+      <BotonAsistente />
       <Modal visible={abierto} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAbierto(false)}>
         <View style={[styles.hoja, { backgroundColor: t.background }]}>
           <View style={{ backgroundColor: t.banner }}>

@@ -5,7 +5,6 @@ import { LayoutAnimation, Pressable, RefreshControl, ScrollView, StyleSheet, Tex
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, G } from 'react-native-svg';
 
-import { BotonAsistente } from '@/components/abasto/asistente';
 import { agruparProductos } from '@/components/abasto/catalogo';
 import { MapaRegiones } from '@/components/abasto/mapa';
 import { SelectorTema } from '@/components/abasto/selector-tema';
@@ -13,9 +12,37 @@ import { EstadoDatos, Icono, s as ui } from '@/components/abasto/ui';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { REGIONES, contar, diasVigencia, entero, fechaLarga, hoyISO, nArt, type Articulo, type Conteo } from '@/data/abasto';
 import { useAbasto, type FiltrosArticulos } from '@/data/abasto-context';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme } from '@/hooks/use-theme';
 
 const DORADO = '#CFB579';
+
+// Colores de la gráfica de tipo de inventario: guinda, oro, verde y azul de la paleta institucional, ajustados para
+// distinguirse entre sí (también con daltonismo) y contra el fondo de cada tema. Los tipos que aparezcan después
+// toman los de EXTRAS, siempre en el mismo orden
+const INVENTARIO = {
+  light: { PAR: '#9b2247', Oferta: '#a57f2c', leche: '#1f8a70', maiz: '#4a6fd0' },
+  dark: { PAR: '#d0587f', Oferta: '#ac8836', leche: '#35a08a', maiz: '#6c84e0' },
+};
+const EXTRAS = ['#7A5C1E', '#B5547A', '#5F6B6D'];
+
+/** Color de cada tipo de inventario. El catálogo los nombra «LECHE BIENESTAR 301» y «MAÍZ P/TODOS 75». */
+function coloresInventario(tipos: Conteo[], esquema: 'light' | 'dark') {
+  const c = INVENTARIO[esquema];
+  let extra = 0;
+  return Object.fromEntries(tipos.map(({ clave }) => [clave,
+    clave === 'PAR' ? c.PAR : clave === 'Oferta' ? c.Oferta
+      : /301/.test(clave) ? c.leche : /\b75\b/.test(clave) ? c.maiz : EXTRAS[extra++ % EXTRAS.length]]));
+}
+
+const distintos = <T,>(xs: T[]) => new Set(xs).size;
+
+/** El grupo con más valores distintos (el proveedor con más marcas, el producto con más proveedores…). */
+function conMasDistintos(arts: Articulo[], grupo: (a: Articulo) => string, valor: (a: Articulo) => string) {
+  const m = new Map<string, Set<string>>();
+  for (const a of arts) (m.get(grupo(a)) ?? m.set(grupo(a), new Set()).get(grupo(a))!).add(valor(a));
+  return [...m].map(([nombre, v]) => ({ nombre, n: v.size })).sort((x, y) => y.n - x.n || x.nombre.localeCompare(y.nombre))[0];
+}
 
 /**
  * Inicio: resumen ejecutivo del catálogo. Cada sección muestra lo esencial, se despliega con «Ver detalle»
@@ -23,6 +50,7 @@ const DORADO = '#CFB579';
  */
 export default function Inicio() {
   const t = useTheme();
+  const esquema = useColorScheme();
   const { datos, cargando, actualizar, setFiltrosArticulos, setRegion, pedirBusqueda } = useAbasto();
 
   const r = useMemo(() => {
@@ -44,14 +72,62 @@ export default function Inicio() {
     // Regionales: los que no tienen cobertura nacional en ninguna negociación (así coinciden con «Cobertura regional»)
     const nacionales = new Set(arts.filter((a) => a.alcance === 'Nacional').map((a) => a.artId));
     const regional = arts.filter((a) => a.alcance === 'Regional' && !nacionales.has(a.artId));
+    const inventario = contar(arts, (a) => a.inventario);
+    const proveedores = contar(arts, (a) => a.cve, (a) => a.provCorto);
+    const productos = agruparProductos(arts);
+    const marcas = contar(arts, (a) => a.marca);
+
+    // Hojas de negociación por tipo de inventario y cobertura: como en el tablero, PAR arriba y Oferta abajo
+    const hojas = (['PAR', 'Oferta'] as const).flatMap((inv) => (['Nacional', 'Regional'] as const).map((alc) => {
+      const d = arts.filter((a) => a.inventario === inv && a.alcance === alc);
+      return {
+        clave: `${inv}-${alc}`, inventario: inv, alcance: alc, hojas: distintos(d.map((a) => a.negociacion)),
+        articulos: nArt(d), proveedores: distintos(d.map((a) => a.cve)),
+        lista: [...new Set(d.map((a) => `${a.negociacion} · ${a.provCorto}`))].sort(),
+      };
+    }));
+
+    // Cada proveedor cuenta una vez: con algún artículo nacional va en Nacional, aunque también tenga regionales
+    const cveNacional = new Set(arts.filter((a) => a.alcance === 'Nacional').map((a) => a.cve));
+    const cveRegional = new Set(arts.filter((a) => a.alcance === 'Regional' && !cveNacional.has(a.cve)).map((a) => a.cve));
+    const notasProveedor = Object.fromEntries(proveedores.map(({ clave }) => {
+      const suyos = arts.filter((a) => a.cve === clave);
+      const tipos = contar(suyos, (a) => a.inventario).map((c) => `${c.etiqueta} ${entero(c.valor)}`).join(' · ');
+      return [clave, `${tipos} · ${cveNacional.has(clave) ? 'Nacional' : 'Regional'}`];
+    }));
+    const detalleInventario = Object.fromEntries(inventario.map(({ clave }) => {
+      const suyos = arts.filter((a) => a.inventario === clave);
+      const n = distintos(suyos.map((a) => a.negociacion));
+      return [clave, `${entero(distintos(suyos.map((a) => a.cve)))} prov. · ${entero(n)} ${n === 1 ? 'hoja' : 'hojas'} neg.`];
+    }));
+    const provMarcas = conMasDistintos(arts, (a) => a.provCorto, (a) => a.marca);
+    const marcaProductos = conMasDistintos(arts, (a) => a.marca, (a) => a.prod);
+    const prodProveedores = conMasDistintos(arts, (a) => a.producto, (a) => a.cve);
+
     return {
       total: nArt(arts),
-      proveedores: contar(arts, (a) => a.cve, (a) => a.provCorto),
-      productos: agruparProductos(arts),
-      marcas: new Set(arts.map((a) => a.marca)).size,
+      proveedores,
+      productos,
+      ofertas: nArt(arts.filter((a) => { const d = diasVigencia(a, hoy); return a.inventario === 'Oferta' && (d === null || d >= 0); })),
+      hojas,
+      detalleInventario,
+      notasProveedor,
+      coberturaProveedores: [
+        { clave: 'Nacional', proveedores: cveNacional.size, articulos: nArt(arts.filter((a) => cveNacional.has(a.cve))) },
+        { clave: 'Regional', proveedores: cveRegional.size, articulos: nArt(arts.filter((a) => cveRegional.has(a.cve))) },
+      ],
+      // Texto de cada hallazgo: las posiciones nones van en negritas
+      hallazgos: arts.length ? [
+        { color: '#9b2247', icono: 'proveedor', partes: ['El proveedor con más artículos es ', proveedores[0].etiqueta, ', con ', entero(proveedores[0].valor), '.'] },
+        { color: '#1e5b4f', icono: 'producto', partes: ['El producto con más artículos es ', productos[0].nombre, ', con ', entero(productos[0].articulos), '.'] },
+        { color: '#a57f2c', icono: 'marca', partes: ['La marca con más artículos es ', marcas[0].etiqueta, ', con ', entero(marcas[0].valor), '.'] },
+        { color: '#002f2a', icono: 'marca', partes: ['', provMarcas.nombre, ' es el proveedor con más marcas: maneja ', entero(provMarcas.n), '.'] },
+        { color: '#a57f2c', icono: 'producto', partes: ['', marcaProductos.nombre, ' es la marca con más productos distintos: ', entero(marcaProductos.n), '.'] },
+        { color: '#611232', icono: 'estrella', partes: ['', prodProveedores.nombre, ' es el producto con más proveedores: ', entero(prodProveedores.n), ' lo surten.'] },
+      ] as const : [],
       // Por tipo de inventario como en el tablero: artículos distintos de cada tipo (un artículo PAR que también tiene
       // una negociación en oferta cuenta en los dos). Se muestran sin porcentajes
-      inventario: contar(arts, (a) => a.inventario),
+      inventario,
       // Cobertura: cada artículo una vez; si tiene cobertura nacional en alguna negociación, cuenta como Nacional
       alcance: contarUnico(arts, (a) => a.alcance, ['Nacional', 'Regional']),
       regiones: contar(regional, (a) => a.regiones).map((c) => ({ ...c, etiqueta: `${c.clave} · ${REGIONES[c.clave].nombre}` })),
@@ -65,9 +141,8 @@ export default function Inicio() {
     setFiltrosArticulos(f);
     router.navigate('/articulos');
   };
-  // PAR, Oferta y su combinación con color fijo; los demás tipos, cada uno con un color distinto
-  // Mismos colores que el tablero (COLOR_INV)
-  const colorInv: Record<string, string> = { PAR: t.accent, Oferta: t.blue, '301': t.green, '75': t.gold };
+  const colorInv = coloresInventario(r.inventario, esquema);
+  const unidades = Object.values(REGIONES).reduce((n, g) => n + g.unidades.length, 0);
 
   return (
     <View style={{ flex: 1, backgroundColor: t.background }}>
@@ -88,14 +163,12 @@ export default function Inicio() {
 
           {datos ? (
             <>
-              <PanelCifras
-                cifras={[
-                  { etiqueta: 'Proveedores', valor: r.proveedores.length, onPress: () => router.navigate('/proveedores') },
-                  { etiqueta: 'Productos', valor: r.productos.length, onPress: () => router.navigate('/productos') },
-                  { etiqueta: 'Artículos', valor: r.total, onPress: () => verArticulos({}) },
-                ]}
-                pie={`${entero(r.marcas)} marcas registradas`}
-              />
+              <BannerCifras cifras={[
+                { etiqueta: 'Proveedores', icono: 'proveedor', valor: r.proveedores.length, fondo: '#1e5b4f', onPress: () => router.navigate('/proveedores') },
+                { etiqueta: 'Productos', icono: 'producto', valor: r.productos.length, fondo: '#9b2247', onPress: () => router.navigate('/productos') },
+                { etiqueta: 'Artículos', icono: 'articulo', valor: r.total, fondo: '#a57f2c', onPress: () => verArticulos({}) },
+                { etiqueta: 'Ofertas vigentes', icono: 'estrella', valor: r.ofertas, fondo: '#611232', onPress: () => verArticulos({ inventario: 'Oferta' }) },
+              ]} />
 
               {r.vencidos || r.negPronto ? (
                 <View style={[styles.aviso, { backgroundColor: t.backgroundElement, borderColor: t.border, borderLeftColor: t.danger }]}>
@@ -111,43 +184,59 @@ export default function Inicio() {
                 </View>
               ) : null}
 
-              <SeccionResumen
-                numero="01"
-                titulo="Artículos"
-                descripcion="Composición del catálogo por tipo de inventario y estado de vigencia."
+              <SeccionResumen numero="1" titulo="Lectura rápida" descripcion="Lo más importante del programa de un vistazo."
+                resumen={<Hallazgos items={r.hallazgos} />} />
+
+              <SeccionResumen numero="2" titulo="Hojas de negociación"
+                descripcion="Arriba las hojas PAR y abajo las de Oferta, por cobertura nacional y regional. Toque un recuadro para ver sus hojas."
+                resumen={<HojasNegociacion grupos={r.hojas} />} />
+
+              <SeccionResumen numero="3" titulo="Proveedores y cobertura"
+                descripcion="Un proveedor con artículos nacionales cuenta solo en Nacional; Regional son los que solo tienen cobertura regional."
+                accion={`Ver los ${entero(r.proveedores.length)} proveedores`}
+                onAccion={() => router.navigate('/proveedores')}
+                textoDetalle={`Mostrar todos (${entero(r.proveedores.length)})`}
+                resumen={
+                  <>
+                    <View style={styles.recuadros}>
+                      {r.coberturaProveedores.map((c) => (
+                        <View key={c.clave} style={[styles.recuadro, { backgroundColor: t.background, borderLeftColor: c.clave === 'Nacional' ? t.green : t.gold }]}>
+                          <Text style={[styles.recuadroEtq, { color: t.textSecondary }]}>Proveedores · Cobertura {c.clave.toLowerCase()}</Text>
+                          <Text style={[styles.recuadroValor, { color: t.text }]}>{entero(c.proveedores)}</Text>
+                          <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{entero(c.articulos)} artículos</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <Ranking items={r.proveedores.slice(0, 3)} total={r.total} notas={r.notasProveedor} onPress={(c) => verArticulos({ proveedor: c.clave })} />
+                  </>
+                }
+                detalle={<Ranking items={r.proveedores.slice(3)} total={r.total} desde={4} notas={r.notasProveedor} onPress={(c) => verArticulos({ proveedor: c.clave })} />}
+              />
+
+              <SeccionResumen numero="4" titulo="Productos y artículos"
+                descripcion="Toque un tipo de inventario para ver sus artículos."
                 accion="Consultar el catálogo de artículos"
                 onAccion={() => verArticulos({})}
+                textoDetalle={`Mostrar todos los productos (${entero(r.productos.length)})`}
                 resumen={
                   <>
                     <Dona items={r.inventario} colores={colorInv} otro={t.muted} centro={r.total} />
-                    <Leyenda items={r.inventario} total={r.total} colores={colorInv} otro={t.muted} sinPorcentaje
+                    <Leyenda items={r.inventario} total={r.total} colores={colorInv} otro={t.muted} sinPorcentaje detalle={r.detalleInventario}
                       onPress={(c) => verArticulos({ inventario: c.clave })} />
+                    <Tabla filas={[
+                      ['Vigentes (más de 30 días)', r.vigentes, t.ok],
+                      ['Vencen en 30 días o menos', r.pronto, t.gold],
+                      ['Vigencia vencida', r.vencidos, t.danger],
+                      ['Sin fecha de vigencia', r.sinFecha, t.muted],
+                    ]} total={r.total} titulo="Estado de vigencia" />
+                    <Ranking titulo="Productos con más artículos" items={r.productos.slice(0, 3).map((p) => ({ clave: p.prod, etiqueta: p.nombre, valor: p.articulos }))} total={r.total} />
                   </>
                 }
-                detalle={
-                  <Tabla filas={[
-                    ['Vigentes (más de 30 días)', r.vigentes, t.ok],
-                    ['Vencen en 30 días o menos', r.pronto, t.gold],
-                    ['Vigencia vencida', r.vencidos, t.danger],
-                    ['Sin fecha de vigencia', r.sinFecha, t.muted],
-                  ]} total={r.total} titulo="Estado de vigencia" />
-                }
+                detalle={<Ranking items={r.productos.slice(3).map((p) => ({ clave: p.prod, etiqueta: p.nombre, valor: p.articulos }))} total={r.total} desde={4} />}
               />
 
-              <SeccionResumen
-                numero="02"
-                titulo="Productos"
-                descripcion={`${entero(r.productos.length)} productos agrupan los artículos del catálogo.`}
-                accion={`Ver los ${entero(r.productos.length)} productos`}
-                onAccion={() => router.navigate('/productos')}
-                resumen={<Ranking items={r.productos.slice(0, 3).map((p) => ({ clave: p.prod, etiqueta: p.nombre, valor: p.articulos }))} total={r.total} />}
-                detalle={<Ranking items={r.productos.slice(3, 10).map((p) => ({ clave: p.prod, etiqueta: p.nombre, valor: p.articulos }))} total={r.total} desde={4} />}
-              />
-
-              <SeccionResumen
-                numero="03"
-                titulo="Cobertura regional"
-                descripcion={`${Object.keys(REGIONES).length} gerencias regionales. Toque una región del mapa para consultarla.`}
+              <SeccionResumen numero="5" titulo="Unidades operativas"
+                descripcion={`${Object.keys(REGIONES).length} gerencias regionales y ${unidades} unidades operativas. Toque una región del mapa para consultarla.`}
                 accion="Ver regiones y unidades operativas"
                 onAccion={() => router.navigate('/regiones')}
                 resumen={
@@ -167,16 +256,6 @@ export default function Inicio() {
                   </>
                 }
               />
-
-              <SeccionResumen
-                numero="04"
-                titulo="Proveedores"
-                descripcion={`${entero(r.proveedores.length)} proveedores con artículos vigentes.`}
-                accion={`Ver los ${entero(r.proveedores.length)} proveedores`}
-                onAccion={() => router.navigate('/proveedores')}
-                resumen={<Ranking items={r.proveedores.slice(0, 3)} total={r.total} onPress={(c) => verArticulos({ proveedor: c.clave })} />}
-                detalle={<Ranking items={r.proveedores.slice(3, 10)} total={r.total} desde={4} onPress={(c) => verArticulos({ proveedor: c.clave })} />}
-              />
             </>
           ) : null}
 
@@ -187,13 +266,19 @@ export default function Inicio() {
           </View>
         </View>
       </ScrollView>
-      <BotonAsistente />
     </View>
   );
 }
 
+/** Hora local (13:05) de una fecha ISO. */
+const hora = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
 function EncabezadoInstitucional() {
   const t = useTheme();
+  const { datos } = useAbasto();
   return (
     <View style={{ backgroundColor: t.banner }}>
       <SafeAreaView edges={['top']} style={styles.encabezado}>
@@ -203,8 +288,8 @@ function EncabezadoInstitucional() {
           <View style={styles.separador} />
           {/* Uno debajo del otro: en una sola línea no caben en un teléfono */}
           <View style={styles.institucionTextos}>
-            <Text style={styles.gobierno} numberOfLines={1} adjustsFontSizeToFit>GOBIERNO DE <Text style={{ fontWeight: '800' }}>MÉXICO</Text></Text>
-            <Text style={styles.dependencia} numberOfLines={2}>Alimentación para el Bienestar</Text>
+            <Text style={styles.gobierno} numberOfLines={2}>Alimentación para el Bienestar</Text>
+            <Text style={styles.dependencia} numberOfLines={1}>Dirección Comercial</Text>
           </View>
           <View style={{ marginLeft: 'auto' }}>
             <SelectorTema />
@@ -212,44 +297,101 @@ function EncabezadoInstitucional() {
         </View>
         <Text style={styles.area}>PROGRAMA DE ABASTO RURAL 2026</Text>
         <Text style={styles.titulo}>Subgerencia de Abarrotes</Text>
-        <Text style={styles.subtitulo}>Resumen del catálogo de artículos vigentes</Text>
-        <Text style={styles.fecha}>Información al {fechaLarga(hoyISO())}</Text>
+        <Text style={styles.subtitulo}>Resumen del catálogo de artículos vigentes · proveedores, productos, marcas y unidades operativas</Text>
+        <Text style={styles.fecha}>
+          Información al {fechaLarga(hoyISO())}{datos ? ` · ${datos.origen === 'red' ? 'OneDrive' : 'copia guardada'} · ${hora(datos.descargado)}` : ''}
+        </Text>
       </SafeAreaView>
       <View style={styles.franja} />
     </View>
   );
 }
 
-/** Cifras generales en un solo panel con divisiones, al estilo de un informe. */
-function PanelCifras({ cifras, pie }: { cifras: { etiqueta: string; valor: number; onPress: () => void }[]; pie: string }) {
+/** Las cuatro cifras principales del tablero, cada una con su color institucional. */
+function BannerCifras({ cifras }: {
+  cifras: { etiqueta: string; icono: 'proveedor' | 'producto' | 'articulo' | 'estrella'; valor: number; fondo: string; onPress: () => void }[];
+}) {
+  return (
+    <View style={styles.banner}>
+      {cifras.map((c) => {
+        // En oro, el texto blanco casi no se lee
+        const tinta = c.fondo === '#a57f2c' ? '#002f2a' : '#ffffff';
+        return (
+          <Pressable key={c.etiqueta} onPress={c.onPress} accessibilityRole="button" accessibilityLabel={`${c.etiqueta}: ${c.valor}`}
+            style={({ pressed }) => [styles.bannerCifra, { backgroundColor: c.fondo }, pressed && ui.presionado]}>
+            <Icono nombre={c.icono} color={tinta} tam={22} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.bannerEtq, { color: tinta }]} numberOfLines={1}>{c.etiqueta}</Text>
+              <Text style={[styles.bannerValor, { color: tinta }]}>{entero(c.valor)}</Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Los hallazgos de «Lectura rápida»: en cada texto, las posiciones nones van en negritas. */
+function Hallazgos({ items }: { items: readonly { color: string; icono: 'proveedor' | 'producto' | 'marca' | 'estrella'; partes: readonly string[] }[] }) {
   const t = useTheme();
   return (
-    <View style={[styles.panel, { backgroundColor: t.backgroundElement, borderColor: t.border }]}>
-      <Text style={[styles.panelTitulo, { color: t.muted }]}>CIFRAS GENERALES</Text>
-      <View style={styles.cifras}>
-        {cifras.map((c, i) => (
-          <Pressable key={c.etiqueta} onPress={c.onPress} accessibilityRole="button" accessibilityLabel={`${c.etiqueta}: ${c.valor}`}
-            style={({ pressed }) => [styles.cifra, i > 0 && { borderLeftColor: t.border, borderLeftWidth: StyleSheet.hairlineWidth }, pressed && ui.presionado]}>
-            <Text style={[styles.cifraValor, { color: t.text }]}>{entero(c.valor)}</Text>
-            <Text style={[styles.cifraEtq, { color: t.textSecondary }]}>{c.etiqueta}</Text>
-            <View style={[styles.cifraLinea, { backgroundColor: t.accent }]} />
+    <View style={{ gap: Spacing.two }}>
+      {items.map((h) => (
+        <View key={h.partes.join('')} style={[styles.hallazgo, { backgroundColor: t.background }]}>
+          <View style={[styles.hallazgoIco, { backgroundColor: h.color }]}>
+            <Icono nombre={h.icono} color="#ffffff" tam={15} />
+          </View>
+          <Text style={[styles.hallazgoTexto, { color: t.text }]}>
+            {h.partes.map((p, i) => <Text key={i} style={i % 2 ? { fontWeight: '700' } : undefined}>{p}</Text>)}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+type GrupoHojas = { clave: string; inventario: string; alcance: string; hojas: number; articulos: number; proveedores: number; lista: string[] };
+
+/** Recuadros de hojas por tipo de inventario y cobertura; al tocar uno se despliegan sus hojas. */
+function HojasNegociacion({ grupos }: { grupos: GrupoHojas[] }) {
+  const t = useTheme();
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const elegido = grupos.find((g) => g.clave === abierto);
+  const color = (g: GrupoHojas) => (g.inventario === 'PAR' ? (g.alcance === 'Nacional' ? t.accent : t.banner) : g.alcance === 'Nacional' ? t.green : t.gold);
+  return (
+    <View style={{ gap: Spacing.two }}>
+      <View style={styles.recuadros}>
+        {grupos.map((g) => (
+          <Pressable key={g.clave} onPress={() => setAbierto(abierto === g.clave ? null : g.clave)} accessibilityRole="button"
+            accessibilityState={{ expanded: abierto === g.clave }}
+            style={({ pressed }) => [styles.recuadro, { backgroundColor: abierto === g.clave ? t.backgroundSelected : t.background, borderLeftColor: color(g) }, pressed && ui.presionado]}>
+            <Text style={[styles.recuadroEtq, { color: t.textSecondary }]}>Hojas {g.inventario} · {g.alcance}</Text>
+            <Text style={[styles.recuadroValor, { color: t.text }]}>{entero(g.hojas)}</Text>
+            <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{entero(g.articulos)} artículos · {entero(g.proveedores)} proveedores</Text>
           </Pressable>
         ))}
       </View>
-      <Text style={[styles.panelPie, { color: t.muted, borderTopColor: t.border }]}>{pie}</Text>
+      {elegido ? (
+        <View style={[styles.hojas, { borderColor: t.border }]}>
+          <ScrollView nestedScrollEnabled>
+            {elegido.lista.map((h) => <Text key={h} style={[styles.hoja, { color: t.text, borderBottomColor: t.border }]}>{h}</Text>)}
+          </ScrollView>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 /** Sección numerada con resumen visible y detalle que se despliega en el mismo lugar. */
-function SeccionResumen({ numero, titulo, descripcion, resumen, detalle, accion, onAccion }: {
+function SeccionResumen({ numero, titulo, descripcion, resumen, detalle, accion, onAccion, textoDetalle = 'Ver detalle' }: {
   numero: string;
   titulo: string;
   descripcion: string;
   resumen: ReactNode;
-  detalle: ReactNode;
-  accion: string;
-  onAccion: () => void;
+  detalle?: ReactNode;
+  accion?: string;
+  onAccion?: () => void;
+  textoDetalle?: string;
 }) {
   const t = useTheme();
   const [abierto, setAbierto] = useState(false);
@@ -269,17 +411,23 @@ function SeccionResumen({ numero, titulo, descripcion, resumen, detalle, accion,
       <View style={[styles.regla, { backgroundColor: t.border }]} />
       <View style={styles.seccionCuerpo}>
         {resumen}
-        {abierto ? <View style={{ marginTop: Spacing.three }}>{detalle}</View> : null}
+        {abierto && detalle ? <View style={{ marginTop: Spacing.three }}>{detalle}</View> : null}
       </View>
-      <View style={[styles.seccionPie, { borderTopColor: t.border }]}>
-        <Pressable onPress={alternar} hitSlop={8} accessibilityState={{ expanded: abierto }}>
-          <Text style={[styles.enlace, { color: t.textSecondary }]}>{abierto ? 'Ocultar detalle' : 'Ver detalle'}</Text>
-        </Pressable>
-        <Pressable onPress={onAccion} hitSlop={8} style={styles.ir}>
-          <Text style={[styles.enlace, { color: t.accent }]} numberOfLines={1}>{accion}</Text>
-          <Icono nombre="flecha" color={t.accent} tam={13} />
-        </Pressable>
-      </View>
+      {detalle || accion ? (
+        <View style={[styles.seccionPie, { borderTopColor: t.border }]}>
+          {detalle ? (
+            <Pressable onPress={alternar} hitSlop={8} accessibilityState={{ expanded: abierto }} style={{ flexShrink: 1 }}>
+              <Text style={[styles.enlace, { color: t.textSecondary }]}>{abierto ? 'Mostrar menos' : textoDetalle}</Text>
+            </Pressable>
+          ) : <View />}
+          {accion ? (
+            <Pressable onPress={onAccion} hitSlop={8} style={styles.ir}>
+              <Text style={[styles.enlace, { color: t.accent }]} numberOfLines={1}>{accion}</Text>
+              <Icono nombre="flecha" color={t.accent} tam={13} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -296,7 +444,7 @@ function Dona({ items, colores, otro, centro, tam = 176 }: {
   const radio = (tam - grosor) / 2;
   const circ = 2 * Math.PI * radio;
   const separacion = items.length > 1 ? 2 : 0;
-  const minimo = 4 + separacion;
+  const minimo = 12 + separacion;
   const suma = items.reduce((n, c) => n + c.valor, 0) || 1;
   const crudos = items.map((c) => Math.max((c.valor / suma) * circ, minimo));
   const escala = circ / crudos.reduce((n, l) => n + l, 0);
@@ -323,9 +471,9 @@ function Dona({ items, colores, otro, centro, tam = 176 }: {
   );
 }
 
-function Leyenda({ items, total, colores, otro, onPress, sinPorcentaje = false }: {
+function Leyenda({ items, total, colores, otro, onPress, sinPorcentaje = false, detalle }: {
   items: Conteo[]; total: number; colores: Record<string, string>; otro: string; onPress: (c: Conteo) => void;
-  sinPorcentaje?: boolean;
+  sinPorcentaje?: boolean; detalle?: Record<string, string>;
 }) {
   const t = useTheme();
   return (
@@ -333,7 +481,10 @@ function Leyenda({ items, total, colores, otro, onPress, sinPorcentaje = false }
       {items.map((c) => (
         <Pressable key={c.clave} onPress={() => onPress(c)} style={({ pressed }) => [styles.leyendaItem, pressed && ui.presionado]}>
           <View style={[styles.punto, { backgroundColor: colores[c.clave] ?? otro }]} />
-          <Text style={[styles.leyendaTexto, { color: t.text }]}>{c.etiqueta}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.leyendaNombre, { color: t.text }]}>{c.etiqueta}</Text>
+            {detalle?.[c.clave] ? <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{detalle[c.clave]}</Text> : null}
+          </View>
           <Text style={[styles.leyendaValor, { color: t.textSecondary }]}>
             {sinPorcentaje ? entero(c.valor) : `${entero(c.valor)} · ${porcentaje(c.valor, total)}`}
           </Text>
@@ -362,8 +513,8 @@ function Tabla({ filas, total, titulo }: { filas: [string, number, string][]; to
 }
 
 /** Lista numerada de los primeros lugares con cantidad y barra de proporción. */
-function Ranking({ items, total, desde = 1, titulo, onPress }: {
-  items: Conteo[]; total: number; desde?: number; titulo?: string; onPress?: (c: Conteo) => void;
+function Ranking({ items, total, desde = 1, titulo, onPress, notas }: {
+  items: Conteo[]; total: number; desde?: number; titulo?: string; onPress?: (c: Conteo) => void; notas?: Record<string, string>;
 }) {
   const t = useTheme();
   const max = Math.max(...items.map((i) => i.valor), 1);
@@ -379,6 +530,7 @@ function Ranking({ items, total, desde = 1, titulo, onPress }: {
               <Text style={[styles.rankNombre, { color: t.text }]} numberOfLines={1}>{c.etiqueta}</Text>
               <Text style={[styles.rankValor, { color: t.text }]}>{entero(c.valor)}</Text>
             </View>
+            {notas?.[c.clave] ? <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{notas[c.clave]}</Text> : null}
             <View style={[styles.rankFondo, { backgroundColor: t.backgroundSelected }]}>
               <View style={[styles.rankBarra, { width: `${(c.valor / max) * 100}%`, backgroundColor: t.accent }]} />
             </View>
@@ -417,25 +569,31 @@ const styles = StyleSheet.create({
   institucion: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.three },
   emblema: { width: 32, height: 34 },
   institucionTextos: { flexShrink: 1, gap: 1 },
-  gobierno: { color: '#fff', fontSize: 13, fontWeight: '400', letterSpacing: 1 },
+  gobierno: { color: '#fff', fontSize: 14, fontWeight: '700' },
   separador: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.4)' },
   dependencia: { color: 'rgba(255,255,255,0.9)', fontSize: 12 },
   area: { color: DORADO, fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
   titulo: { color: '#fff', fontSize: 27, fontWeight: '700', marginTop: 4, lineHeight: 32 },
-  subtitulo: { color: 'rgba(255,255,255,0.88)', fontSize: 14, marginTop: 4 },
+  subtitulo: { color: 'rgba(255,255,255,0.88)', fontSize: 14, lineHeight: 20, marginTop: 4 },
   fecha: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: Spacing.three },
   franja: { height: 4, backgroundColor: DORADO },
   cuerpo: { padding: Spacing.three, gap: Spacing.three, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   buscar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 13 },
   buscarTexto: { fontSize: 15, flexShrink: 1 },
-  panel: { borderWidth: 1, borderRadius: 8, overflow: 'hidden' },
-  panelTitulo: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, paddingHorizontal: Spacing.three, paddingTop: Spacing.three },
-  cifras: { flexDirection: 'row', paddingVertical: Spacing.three },
-  cifra: { flex: 1, alignItems: 'center', paddingHorizontal: 4 },
-  cifraValor: { fontSize: 28, fontWeight: '700' },
-  cifraEtq: { fontSize: 12, fontWeight: '600', marginTop: 2 },
-  cifraLinea: { width: 20, height: 2, marginTop: 8 },
-  panelPie: { fontSize: 12, textAlign: 'center', paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  banner: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
+  bannerCifra: { flexBasis: '47%', flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 8, padding: Spacing.three },
+  bannerEtq: { fontSize: 12, fontWeight: '600' },
+  bannerValor: { fontSize: 26, fontWeight: '700' },
+  hallazgo: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, borderRadius: 8, padding: 10 },
+  hallazgoIco: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  hallazgoTexto: { flex: 1, fontSize: 14, lineHeight: 20 },
+  recuadros: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
+  recuadro: { flexBasis: '47%', flexGrow: 1, borderRadius: 8, borderLeftWidth: 4, padding: 12 },
+  recuadroEtq: { fontSize: 12, fontWeight: '600' },
+  recuadroValor: { fontSize: 24, fontWeight: '700', marginTop: 2 },
+  recuadroSub: { fontSize: 12, lineHeight: 16 },
+  hojas: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 8, maxHeight: 260, overflow: 'hidden' },
+  hoja: { fontSize: 13, paddingHorizontal: Spacing.three, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
   aviso: { borderWidth: 1, borderLeftWidth: 4, borderRadius: 8, padding: Spacing.three, gap: 4 },
   avisoEtq: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
   avisoTexto: { fontSize: 14, lineHeight: 20 },
@@ -455,7 +613,7 @@ const styles = StyleSheet.create({
   donaEtq: { fontSize: 12 },
   leyenda: { gap: 2 },
   leyendaItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
-  leyendaTexto: { flex: 1, fontSize: 14 },
+  leyendaNombre: { fontSize: 14 },
   leyendaValor: { fontSize: 13 },
   nota: { fontSize: 12, lineHeight: 17 },
   punto: { width: 9, height: 9, borderRadius: 2 },
