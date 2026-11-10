@@ -287,19 +287,15 @@ function EncabezadoInstitucional() {
           <Image source={require('@/assets/images/emblema-bienestar.png')} style={styles.emblema} contentFit="contain"
             accessibilityLabel="Alimentación para el Bienestar" />
           <View style={styles.separador} />
-          {/* De la institución al área, uno debajo del otro: en una sola línea no caben en un teléfono */}
-          <View style={styles.institucionTextos}>
-            <Text style={styles.gobierno} numberOfLines={2}>Alimentación para el Bienestar</Text>
-            <Text style={styles.dependencia} numberOfLines={1}>Dirección Comercial</Text>
-            <Text style={styles.dependencia} numberOfLines={2}>Gerencia de Abasto de Grano y Abarrotes</Text>
-          </View>
+          <Text style={styles.gobierno} numberOfLines={2}>Alimentación para el Bienestar</Text>
           <View style={{ marginLeft: 'auto' }}>
             <SelectorTema />
           </View>
         </View>
-        <Text style={styles.titulo}>Subgerencia de Abarrotes</Text>
-        <Text style={styles.area}>PROGRAMA DE ABASTO RURAL 2026</Text>
-        <Text style={styles.subtitulo}>Resumen del catálogo de artículos vigentes · proveedores, productos, marcas y unidades operativas</Text>
+        {/* De la dirección al área, uno debajo del otro */}
+        <Text style={styles.titulo}>Dirección Comercial</Text>
+        <Text style={styles.dependencia}>Gerencia de Abasto de Grano y Abarrotes</Text>
+        <Text style={styles.area}>Subgerencia de Abarrotes</Text>
         <Text style={styles.fecha}>
           Información al {fechaLarga(hoyISO())}{datos ? ` · ${datos.origen === 'red' ? 'OneDrive' : 'copia guardada'} · ${hora(datos.descargado)}` : ''}
         </Text>
@@ -550,13 +546,11 @@ const styles = StyleSheet.create({
   encabezado: { paddingHorizontal: Spacing.four, paddingTop: Spacing.three, paddingBottom: Spacing.four, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   institucion: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.three },
   emblema: { width: 32, height: 34 },
-  institucionTextos: { flexShrink: 1, gap: 1 },
-  gobierno: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  gobierno: { flexShrink: 1, color: '#fff', fontSize: 20, fontWeight: '800', lineHeight: 25 },
   separador: { width: 1, alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.4)' },
-  dependencia: { color: 'rgba(255,255,255,0.9)', fontSize: 12 },
-  area: { color: DORADO, fontSize: 11, fontWeight: '700', letterSpacing: 1.4, marginTop: 4 },
   titulo: { color: '#fff', fontSize: 27, fontWeight: '800', lineHeight: 32 },
-  subtitulo: { color: 'rgba(255,255,255,0.88)', fontSize: 14, lineHeight: 20, marginTop: 4 },
+  dependencia: { color: 'rgba(255,255,255,0.92)', fontSize: 15, fontWeight: '600', marginTop: 4 },
+  area: { color: DORADO, fontSize: 13, fontWeight: '700', marginTop: 4 },
   fecha: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: Spacing.three },
   franja: { height: 4, backgroundColor: DORADO },
   cuerpo: { padding: Spacing.three, gap: Spacing.three, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
