@@ -287,17 +287,18 @@ function EncabezadoInstitucional() {
           <Image source={require('@/assets/images/emblema-bienestar.png')} style={styles.emblema} contentFit="contain"
             accessibilityLabel="Alimentación para el Bienestar" />
           <View style={styles.separador} />
-          {/* Uno debajo del otro: en una sola línea no caben en un teléfono */}
+          {/* De la institución al área, uno debajo del otro: en una sola línea no caben en un teléfono */}
           <View style={styles.institucionTextos}>
             <Text style={styles.gobierno} numberOfLines={2}>Alimentación para el Bienestar</Text>
             <Text style={styles.dependencia} numberOfLines={1}>Dirección Comercial</Text>
+            <Text style={styles.dependencia} numberOfLines={2}>Gerencia de Abasto de Grano y Abarrotes</Text>
           </View>
           <View style={{ marginLeft: 'auto' }}>
             <SelectorTema />
           </View>
         </View>
-        <Text style={styles.area}>PROGRAMA DE ABASTO RURAL 2026</Text>
         <Text style={styles.titulo}>Subgerencia de Abarrotes</Text>
+        <Text style={styles.area}>PROGRAMA DE ABASTO RURAL 2026</Text>
         <Text style={styles.subtitulo}>Resumen del catálogo de artículos vigentes · proveedores, productos, marcas y unidades operativas</Text>
         <Text style={styles.fecha}>
           Información al {fechaLarga(hoyISO())}{datos ? ` · ${datos.origen === 'red' ? 'OneDrive' : 'copia guardada'} · ${hora(datos.descargado)}` : ''}
@@ -551,10 +552,10 @@ const styles = StyleSheet.create({
   emblema: { width: 32, height: 34 },
   institucionTextos: { flexShrink: 1, gap: 1 },
   gobierno: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  separador: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.4)' },
+  separador: { width: 1, alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.4)' },
   dependencia: { color: 'rgba(255,255,255,0.9)', fontSize: 12 },
-  area: { color: DORADO, fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
-  titulo: { color: '#fff', fontSize: 27, fontWeight: '700', marginTop: 4, lineHeight: 32 },
+  area: { color: DORADO, fontSize: 11, fontWeight: '700', letterSpacing: 1.4, marginTop: 4 },
+  titulo: { color: '#fff', fontSize: 27, fontWeight: '800', lineHeight: 32 },
   subtitulo: { color: 'rgba(255,255,255,0.88)', fontSize: 14, lineHeight: 20, marginTop: 4 },
   fecha: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: Spacing.three },
   franja: { height: 4, backgroundColor: DORADO },
