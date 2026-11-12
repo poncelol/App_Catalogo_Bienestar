@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as XLSX from 'xlsx';
 
 import { descargarExcel } from '@/data/descarga';
+import { registrarCambios } from '@/data/novedades';
 import { urlDescarga } from '@/data/vinculos';
 
 export { LINK_EXCEL, urlDescarga } from '@/data/vinculos';
@@ -255,6 +256,9 @@ export function urlImagen(v: unknown): string | null {
 export async function descargar(): Promise<Datos> {
   const contenido = await descargarExcel('catalogo');
   const datos: Datos = { articulos: leerExcel(contenido), descargado: new Date().toISOString(), origen: 'red' };
+  // Antes de reemplazar la copia guardada, se compara con ella para registrar las novedades
+  const anterior = await leerCopia();
+  if (anterior?.articulos.length) await registrarCambios(anterior.articulos, datos.articulos, anterior.descargado);
   await AsyncStorage.setItem(CLAVE_CACHE, JSON.stringify(datos)).catch(() => undefined);
   return datos;
 }
@@ -293,6 +297,42 @@ export function contar(arts: Articulo[], grupo: (a: Articulo) => string | string
     .sort((x, y) => y.valor - x.valor || x.etiqueta.localeCompare(y.etiqueta));
 }
 
+/** Hoja de negociación con lo que reúne: proveedor, tipo de inventario, cobertura, vigencia y artículos. */
+export type Hoja = {
+  clave: string;
+  proveedor: string;
+  cve: string;
+  inventario: string;
+  alcance: Alcance;
+  /** La fecha más lejana de sus renglones: hasta entonces se puede surtir algo de la hoja. */
+  vigencia: string | null;
+  articulos: number;
+};
+
+/** Hojas de negociación de unos artículos, ordenadas por número. */
+export function hojasNegociacion(arts: Articulo[]): Hoja[] {
+  const grupos = new Map<string, Articulo[]>();
+  for (const a of arts) if (a.negociacion) (grupos.get(a.negociacion) ?? grupos.set(a.negociacion, []).get(a.negociacion)!).push(a);
+  return [...grupos].map(([clave, g]) => {
+    const fechas = g.map((a) => a.vigencia).filter((v): v is string => !!v).sort();
+    const prov = contar(g, (a) => a.cve, (a) => a.provCorto)[0];
+    return {
+      clave,
+      proveedor: prov.etiqueta,
+      cve: prov.clave,
+      inventario: contar(g, (a) => a.inventario).map((c) => c.etiqueta).join(' / '),
+      alcance: g.some((a) => a.alcance === 'Nacional') ? 'Nacional' : g.some((a) => a.alcance === 'Regional') ? 'Regional' : 'Sin dato',
+      vigencia: fechas.length ? fechas[fechas.length - 1] : null,
+      articulos: nArt(g),
+    } satisfies Hoja;
+  }).sort((x, y) => x.clave.localeCompare(y.clave, undefined, { numeric: true }));
+}
+
+/** Días que faltan para una fecha AAAA-MM-DD (negativo si ya pasó). */
+export function diasHasta(iso: string | null, hoy = hoyISO()) {
+  return iso === null ? null : Math.round((Date.parse(iso) - Date.parse(hoy)) / 86400000);
+}
+
 /** Fecha local como AAAA-MM-DD. */
 export function isoLocal(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -304,7 +344,7 @@ export function hoyISO() {
 
 /** Días que faltan para la vigencia (negativo si ya pasó). */
 export function diasVigencia(a: Articulo, hoy = hoyISO()) {
-  return a.vigencia === null ? null : Math.round((Date.parse(a.vigencia) - Date.parse(hoy)) / 86400000);
+  return diasHasta(a.vigencia, hoy);
 }
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];

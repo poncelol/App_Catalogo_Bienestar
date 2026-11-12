@@ -50,11 +50,12 @@ export default function Articulos() {
 
   const activos: { texto: string; quitar: Partial<FiltrosArticulos> }[] = [
     f.texto ? { texto: `«${f.texto}»`, quitar: { texto: undefined, orden: undefined } } : null,
+    f.negociacion ? { texto: `Hoja ${f.negociacion}`, quitar: { negociacion: undefined } } : null,
     f.inventario ? { texto: f.inventario, quitar: { inventario: undefined } } : null,
     f.marca ? { texto: f.marca, quitar: { marca: undefined } } : null,
     f.proveedor ? { texto: proveedores.get(f.proveedor) ?? f.proveedor, quitar: { proveedor: undefined } } : null,
   ].filter((x) => x !== null);
-  const nFiltros = [f.inventario, f.marca, f.proveedor].filter(Boolean).length;
+  const nFiltros = [f.negociacion, f.inventario, f.marca, f.proveedor].filter(Boolean).length;
   const orden = f.orden ?? (f.texto ? 'relevancia' : 'nombre');
 
   const encabezadoLista = (

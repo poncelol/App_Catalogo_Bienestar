@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import Animated, { FadeInDown, FadeInLeft, FadeInRight, LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Escribiendo } from '@/components/abasto/animaciones';
 import { FilaArticulo, Foto } from '@/components/abasto/catalogo';
 import { IlustracionProducto } from '@/components/abasto/ilustracion-producto';
 import { INFO_MOTOR, useMotor } from '@/components/abasto/motor-ia';
@@ -36,7 +38,7 @@ export function ChatAsistente(props: PropsChat) {
   return <Sesion key={intento} {...props} onReintentar={() => setIntento((n) => n + 1)} />;
 }
 
-function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerProducto, onReintentar }: PropsChat & { onReintentar: () => void }) {
+function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat & { onReintentar: () => void }) {
   const { datos, cargando } = useAbasto();
   const [generando, setGenerando] = useState(false);
   const motor = useMotor();
@@ -67,6 +69,9 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerPro
       proveedor ? `¿Qué productos vende ${proveedor}?` : 'Resumen del catálogo',
       '¿Qué proveedores venden frijoles en la región Sureste?',
       'Compara los aceites Patrona y Cristal',
+      'Hojas de negociación que vencen esta semana',
+      '¿Cuántos artículos hay por tipo de inventario?',
+      '¿En qué regiones se surte el frijol?',
     ];
   }, [datos]);
 
@@ -95,6 +100,7 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerPro
     setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, {
       id, rol: 'asistente', texto: '', pendiente: true,
       articulos: consulta.articulos, proveedores: consulta.proveedores, productos: consulta.productos,
+      hojas: consulta.hojas, inventarios: consulta.inventarios, regiones: consulta.regiones,
       entendido: describir(intencion),
     }]);
     const cambiar = (c: Partial<Mensaje>) => setMensajes((m) => m.map((x) => (x.id === id ? { ...x, ...c } : x)));
@@ -135,7 +141,7 @@ function Sesion({ mensajes, setMensajes, onVerArticulo, onVerProveedor, onVerPro
     // También en Android: la hoja es un Modal de pantalla completa (edge-to-edge) y el sistema no la encoge al abrir
     // el teclado, así que la caja de texto quedaba tapada. Si la ventana sí se encoge, el padding calculado es 0
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
-      <Conversacion mensajes={mensajes} sugerencias={sugerencias} onEnviar={enviar} acciones={{ onVerArticulo, onVerProveedor, onVerProducto }} />
+      <Conversacion mensajes={mensajes} sugerencias={sugerencias} onEnviar={enviar} acciones={acciones} />
       <Entrada generando={generando} onEnviar={enviar} onDetener={motor.detener} />
     </KeyboardAvoidingView>
   );
@@ -207,7 +213,7 @@ function Barra({ progreso }: { progreso: number }) {
   );
 }
 
-type Acciones = Pick<PropsChat, 'onVerArticulo' | 'onVerProveedor' | 'onVerProducto'>;
+type Acciones = Omit<PropsChat, 'mensajes' | 'setMensajes'>;
 
 function Conversacion({ mensajes, sugerencias, onEnviar, acciones }: {
   mensajes: Mensaje[]; sugerencias: string[]; onEnviar: (q: string) => void; acciones: Acciones;
@@ -246,7 +252,10 @@ function Conversacion({ mensajes, sugerencias, onEnviar, acciones }: {
           </View>
         </View>
       ) : (
-        mensajes.map((m) => <Burbuja key={m.id} m={m} acciones={acciones} onReintentar={onEnviar} />)
+        // Al volver a abrir el asistente, los mensajes que ya estaban no se animan otra vez; solo los nuevos
+        <LayoutAnimationConfig skipEntering>
+          {mensajes.map((m) => <Burbuja key={m.id} m={m} acciones={acciones} onReintentar={onEnviar} />)}
+        </LayoutAnimationConfig>
       )}
     </ScrollView>
   );
@@ -256,14 +265,17 @@ function Burbuja({ m, acciones, onReintentar }: { m: Mensaje; acciones: Acciones
   const t = useTheme();
   if (m.rol === 'usuario') {
     return (
-      <View style={[styles.burbuja, styles.usuario, { backgroundColor: t.accent }]}>
+      <Animated.View entering={FadeInRight.duration(220)} style={[styles.burbuja, styles.usuario, { backgroundColor: t.accent }]}>
         <Text style={[styles.texto, { color: '#ffffff' }]} selectable>{m.texto}</Text>
-      </View>
+      </Animated.View>
     );
   }
   const extra = (m.articulos?.length ?? 0) - TARJETAS;
+  // Las tarjetas entran una tras otra, después de la burbuja
+  let turno = 0;
+  const entrada = () => FadeInDown.duration(260).delay(120 + Math.min(turno++, 8) * 60);
   return (
-    <View style={styles.respuesta}>
+    <Animated.View entering={FadeInLeft.duration(260)} style={styles.respuesta}>
       {m.entendido ? (
         <View style={styles.entendido}>
           <Icono nombre="buscar" color={t.muted} tam={12} />
@@ -280,9 +292,9 @@ function Burbuja({ m, acciones, onReintentar }: { m: Mensaje; acciones: Acciones
           </View>
         ) : null}
         {m.pendiente && !m.texto ? (
-          <View style={styles.pensando}>
-            <ActivityIndicator size="small" color={t.accent} />
-            <Text style={[styles.pensandoTexto, { color: t.textSecondary }]}>Escribiendo…</Text>
+          <View style={styles.pensando} accessibilityLabel="Escribiendo">
+            <Escribiendo color={t.accent} />
+            <Text style={[styles.pensandoTexto, { color: t.textSecondary }]}>Escribiendo</Text>
           </View>
         ) : null}
         {m.error && m.pregunta ? (
@@ -294,40 +306,59 @@ function Burbuja({ m, acciones, onReintentar }: { m: Mensaje; acciones: Acciones
       </View>
       {m.articulos?.length ? (
         <View style={{ gap: Spacing.two }}>
-          {m.articulos.slice(0, TARJETAS).map((a) => <FilaArticulo key={a.artId} a={a} onPress={acciones.onVerArticulo} />)}
+          {m.articulos.slice(0, TARJETAS).map((a) => (
+            <Animated.View key={a.artId} entering={entrada()}><FilaArticulo a={a} onPress={acciones.onVerArticulo} /></Animated.View>
+          ))}
           {extra > 0 ? <Text style={[styles.mas, { color: t.muted }]}>y {entero(extra)} artículos más en el catálogo</Text> : null}
         </View>
       ) : null}
-      {m.proveedores?.length ? (
-        <View style={{ gap: Spacing.two }}>
-          {m.proveedores.map((g) => <FilaGrupo key={g.clave} g={g} tipo="proveedor" onPress={() => acciones.onVerProveedor(g.clave)} />)}
+      {([
+        ['proveedor', m.proveedores, acciones.onVerProveedor],
+        ['producto', m.productos, acciones.onVerProducto],
+        ['hoja', m.hojas, acciones.onVerHoja],
+        ['inventario', m.inventarios, acciones.onVerInventario],
+        ['region', m.regiones, acciones.onVerRegion],
+      ] as const).map(([tipo, grupos, ver]) => (grupos?.length ? (
+        <View key={tipo} style={{ gap: Spacing.two }}>
+          {grupos.map((g) => (
+            <Animated.View key={g.clave} entering={entrada()}><FilaGrupo g={g} tipo={tipo} onPress={() => ver(g.clave)} /></Animated.View>
+          ))}
         </View>
-      ) : null}
-      {m.productos?.length ? (
-        <View style={{ gap: Spacing.two }}>
-          {m.productos.map((g) => <FilaGrupo key={g.clave} g={g} tipo="producto" onPress={() => acciones.onVerProducto(g.clave)} />)}
-        </View>
-      ) : null}
-    </View>
+      ) : null))}
+    </Animated.View>
   );
 }
 
-/** Tarjeta de un proveedor (con su logotipo) o de un producto (con su ilustración): lleva a su catálogo. */
-function FilaGrupo({ g, tipo, onPress }: { g: Grupo; tipo: 'proveedor' | 'producto'; onPress: () => void }) {
+type TipoGrupo = 'proveedor' | 'producto' | 'hoja' | 'inventario' | 'region';
+const ICONO_GRUPO = { hoja: 'lista', inventario: 'estrella', region: 'ubicacion' } as const;
+const ACCION_GRUPO: Record<TipoGrupo, string> = {
+  proveedor: 'Ver artículos', producto: 'Ver producto', hoja: 'Ver artículos', inventario: 'Ver artículos', region: 'Ver región',
+};
+
+/**
+ * Tarjeta de un proveedor (con su logotipo), un producto (con su ilustración), una hoja de negociación, un tipo de
+ * inventario o una región: lleva a su catálogo.
+ */
+function FilaGrupo({ g, tipo, onPress }: { g: Grupo; tipo: TipoGrupo; onPress: () => void }) {
   const t = useTheme();
+  const cuantos = `${entero(g.articulos)} ${g.articulos === 1 ? 'artículo' : 'artículos'}`;
+  const clave = tipo === 'proveedor' ? `CVE ${g.clave} · ` : tipo === 'producto' ? `PROD. ${g.clave} · ` : '';
   return (
     <Pressable onPress={onPress} accessibilityRole="button"
       style={({ pressed }) => [styles.grupo, { backgroundColor: t.backgroundElement }, pressed && ui.presionado]}>
-      {tipo === 'producto'
-        ? <IlustracionProducto nombre={g.nombre} tamIcono={18} style={styles.grupoImagen} />
-        : <Foto uri={imagenProveedor(g.clave)} clave={g.clave} icono="proveedor" style={styles.grupoImagen} tamIcono={20} />}
+      {tipo === 'producto' ? <IlustracionProducto nombre={g.nombre} tamIcono={18} style={styles.grupoImagen} />
+        : tipo === 'proveedor' ? <Foto uri={imagenProveedor(g.clave)} clave={g.clave} icono="proveedor" style={styles.grupoImagen} tamIcono={20} />
+        : (
+          <View style={[styles.grupoImagen, styles.grupoIcono, { backgroundColor: t.accentSoft }]}>
+            <Icono nombre={ICONO_GRUPO[tipo]} color={t.accent} tam={20} />
+          </View>
+        )}
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={[styles.grupoNombre, { color: t.text }]} numberOfLines={2}>{g.nombre}</Text>
-        <Text style={[styles.grupoDetalle, { color: t.textSecondary }]}>
-          {tipo === 'proveedor' ? `CVE ${g.clave}` : `PROD. ${g.clave}`} · {entero(g.articulos)} {g.articulos === 1 ? 'artículo' : 'artículos'}
-        </Text>
+        <Text style={[styles.grupoDetalle, { color: t.textSecondary }]}>{clave}{cuantos}</Text>
+        {g.detalle ? <Text style={[styles.grupoDetalle, { color: t.textSecondary }]} numberOfLines={2}>{g.detalle}</Text> : null}
       </View>
-      <Text style={[styles.grupoAccion, { color: t.accent }]}>{tipo === 'proveedor' ? 'Ver artículos' : 'Ver producto'}</Text>
+      <Text style={[styles.grupoAccion, { color: t.accent }]}>{ACCION_GRUPO[tipo]}</Text>
       <Icono nombre="flecha" color={t.accent} tam={13} />
     </Pressable>
   );
@@ -429,6 +460,7 @@ const styles = StyleSheet.create({
   pensandoTexto: { fontSize: 13 },
   grupo: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, borderRadius: 14, padding: 10, paddingRight: 12 },
   grupoImagen: { width: 48, height: 48, aspectRatio: undefined, borderRadius: 10 },
+  grupoIcono: { alignItems: 'center', justifyContent: 'center' },
   grupoNombre: { fontSize: 14, fontWeight: '600', lineHeight: 18 },
   grupoDetalle: { fontSize: 12 },
   grupoAccion: { fontSize: 12, fontWeight: '600' },

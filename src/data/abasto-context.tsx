@@ -4,6 +4,7 @@ import { AppState, Platform } from 'react-native';
 import { descargar, leerCopia, type Datos } from '@/data/abasto';
 import type { FiltrosCatalogo } from '@/data/busqueda';
 import { cargarImagenesGuardadas, conImagenes, descargarImagenes, precargar } from '@/data/imagenes';
+import { leerNovedades, type Novedades } from '@/data/novedades';
 
 /** Al volver a la app después de este tiempo se descargan de nuevo el catálogo y las imágenes. */
 const MINUTOS_PARA_ACTUALIZAR = 5;
@@ -19,6 +20,8 @@ type Estado = {
   cargando: boolean;
   error: string | null;
   actualizar: () => Promise<void>;
+  /** Últimos cambios detectados en el Excel (ver novedades). */
+  novedades: Novedades | null;
   // Cada pestaña guarda su propio estado: Artículos y Productos no dependen una de la otra
   filtrosArticulos: FiltrosArticulos;
   setFiltrosArticulos: (f: FiltrosArticulos) => void;
@@ -54,6 +57,7 @@ export function AbastoProvider({ children }: { children: ReactNode }) {
   const [datos, setDatos] = useState<Datos | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [novedades, setNovedades] = useState<Novedades | null>(null);
   const [filtrosArticulos, setFiltrosArticulos] = useState<FiltrosArticulos>({});
   const [productoAbierto, setProductoAbierto] = useState<string | null>(null);
   const [region, setRegion] = useState<string | null>(null);
@@ -82,6 +86,7 @@ export function AbastoProvider({ children }: { children: ReactNode }) {
     } else {
       setError(motivo(catalogo.reason));
     }
+    setNovedades(await leerNovedades());
     setCargando(false);
   }, [mostrar, refrescarFotos]);
 
@@ -93,9 +98,10 @@ export function AbastoProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Primero las copias guardadas (se ven al instante y sirven sin red); luego las versiones de OneDrive
     let vivo = true;
-    Promise.all([leerCopia(), cargarImagenesGuardadas()]).then(([copia]) => {
+    Promise.all([leerCopia(), cargarImagenesGuardadas(), leerNovedades()]).then(([copia, , nov]) => {
       if (vivo && copia && !crudos.current) mostrar(copia);
       else if (vivo) refrescarFotos();
+      if (vivo) setNovedades((n) => n ?? nov);
     });
     // En la siguiente vuelta del ciclo de eventos, para no cambiar el estado dentro del efecto
     void Promise.resolve().then(bajar);
@@ -115,7 +121,7 @@ export function AbastoProvider({ children }: { children: ReactNode }) {
   return (
     <Contexto.Provider
       value={{
-        datos, cargando, error, actualizar,
+        datos, cargando, error, actualizar, novedades,
         filtrosArticulos, setFiltrosArticulos, pedidoBusqueda, pedirBusqueda, productoAbierto, setProductoAbierto, region, setRegion,
       }}>
       {children}

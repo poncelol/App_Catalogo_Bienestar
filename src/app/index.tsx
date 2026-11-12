@@ -1,17 +1,23 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
-import { LayoutAnimation, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, G } from 'react-native-svg';
 
+import { Aparecer, BarraAnimada, NumeroAnimado, Sonar, desplegar, girarDona } from '@/components/abasto/animaciones';
 import { agruparProductos } from '@/components/abasto/catalogo';
 import { MapaRegiones } from '@/components/abasto/mapa';
 import { SelectorTema } from '@/components/abasto/selector-tema';
 import { EstadoDatos, Icono, s as ui } from '@/components/abasto/ui';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { REGIONES, contar, diasVigencia, entero, fechaLarga, hoyISO, nArt, type Articulo, type Conteo } from '@/data/abasto';
+import {
+  REGIONES, contar, diasHasta, diasVigencia, dinero, entero, fechaCorta, fechaLarga, hojasNegociacion, hoyISO, isoLocal, nArt,
+  type Articulo, type Conteo, type Hoja,
+} from '@/data/abasto';
 import { useAbasto, type FiltrosArticulos } from '@/data/abasto-context';
+import type { ArticuloNovedad, Novedades } from '@/data/novedades';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -44,7 +50,7 @@ const distintos = <T,>(xs: T[]) => new Set(xs).size;
 export default function Inicio() {
   const t = useTheme();
   const esquema = useColorScheme();
-  const { datos, cargando, actualizar, setFiltrosArticulos, setRegion, pedirBusqueda } = useAbasto();
+  const { datos, cargando, actualizar, novedades, setFiltrosArticulos, setRegion, pedirBusqueda } = useAbasto();
 
   const r = useMemo(() => {
     const arts = datos?.articulos ?? [];
@@ -94,7 +100,18 @@ export default function Inicio() {
       return [clave, `${entero(distintos(suyos.map((a) => a.cve)))} prov. · ${entero(n)} ${n === 1 ? 'hoja' : 'hojas'} neg.`];
     }));
 
+    // Avisos por hoja de negociación: cada hoja con la fecha más lejana de sus renglones
+    const conDias = hojasNegociacion(arts).map((h) => ({ ...h, dias: diasHasta(h.vigencia, hoy) }))
+      .sort((x, y) => (x.dias ?? Infinity) - (y.dias ?? Infinity));
+    const avisos = {
+      vencidas: conDias.filter((h) => h.dias !== null && h.dias < 0),
+      pronto: conDias.filter((h) => h.dias !== null && h.dias >= 0 && h.dias <= 30),
+      semana: conDias.filter((h) => h.dias !== null && h.dias >= 0 && h.dias <= 7),
+      porHoja: Object.fromEntries(conDias.map((h) => [h.clave, itemHoja(h)])),
+    };
+
     return {
+      avisos,
       total: nArt(arts),
       proveedores,
       productos,
@@ -155,8 +172,11 @@ export default function Inicio() {
                 pie={`${entero(r.marcas)} marcas registradas`}
               />
 
+              <PanelNovedades novedades={novedades} semana={r.avisos.semana} hojas={r.avisos.porHoja}
+                onArticulo={(artId) => verArticulos({ texto: artId })} onHoja={(h) => verArticulos({ negociacion: h })} />
+
               {r.vencidos || r.negPronto ? (
-                <View style={[styles.aviso, { backgroundColor: t.backgroundElement, borderColor: t.border, borderLeftColor: t.danger }]}>
+                <Aparecer orden={2} style={[styles.aviso, { backgroundColor: t.backgroundElement, borderColor: t.border, borderLeftColor: t.danger }]}>
                   <Text style={[styles.avisoEtq, { color: t.danger }]}>AVISO DE VIGENCIA</Text>
                   <Text style={[styles.avisoTexto, { color: t.text }]}>
                     {r.vencidos ? `${entero(r.vencidos)} ${r.vencidos === 1 ? 'artículo tiene' : 'artículos tienen'} la vigencia vencida` : ''}
@@ -166,10 +186,15 @@ export default function Inicio() {
                         (r.pronto < r.negPronto ? ' (siguen en el catálogo por otra negociación vigente)' : '')
                       : ''}.
                   </Text>
-                </View>
+                  <Desplegable color={t.gold} texto={`${entero(r.avisos.pronto.length)} ${r.avisos.pronto.length === 1 ? 'hoja vence' : 'hojas vencen'} en 30 días o menos`}
+                    items={r.avisos.pronto.map((h) => itemHoja(h))} onPress={(h) => verArticulos({ negociacion: h })} />
+                  <Desplegable color={t.danger} texto={`${entero(r.avisos.vencidas.length)} ${r.avisos.vencidas.length === 1 ? 'hoja con vigencia vencida' : 'hojas con vigencia vencida'}`}
+                    items={r.avisos.vencidas.map((h) => itemHoja(h))} onPress={(h) => verArticulos({ negociacion: h })} />
+                </Aparecer>
               ) : null}
 
               <SeccionResumen
+                orden={3}
                 icono="articulo"
                 titulo="Artículos"
                 descripcion="Composición del catálogo por tipo de inventario y estado de vigencia."
@@ -193,6 +218,7 @@ export default function Inicio() {
               />
 
               <SeccionResumen
+                orden={4}
                 icono="lista"
                 titulo="Hojas de negociación"
                 descripcion="PAR y Oferta, por cobertura nacional y regional. Toque un recuadro para ver sus hojas."
@@ -200,6 +226,7 @@ export default function Inicio() {
               />
 
               <SeccionResumen
+                orden={5}
                 icono="producto"
                 titulo="Productos"
                 descripcion={`${entero(r.productos.length)} productos agrupan los artículos del catálogo.`}
@@ -211,6 +238,7 @@ export default function Inicio() {
               />
 
               <SeccionResumen
+                orden={6}
                 icono="ubicacion"
                 titulo="Cobertura regional"
                 descripcion={`${Object.keys(REGIONES).length} gerencias regionales y ${unidades} unidades operativas. Toque una región del mapa para consultarla.`}
@@ -235,6 +263,7 @@ export default function Inicio() {
               />
 
               <SeccionResumen
+                orden={7}
                 icono="proveedor"
                 titulo="Proveedores"
                 descripcion={`${entero(r.proveedores.length)} proveedores con artículos vigentes.`}
@@ -247,7 +276,7 @@ export default function Inicio() {
                       {r.coberturaProveedores.map((c) => (
                         <View key={c.clave} style={[styles.recuadro, { backgroundColor: t.background, borderLeftColor: c.clave === 'Nacional' ? t.green : t.gold }]}>
                           <Text style={[styles.recuadroEtq, { color: t.textSecondary }]}>Cobertura {c.clave.toLowerCase()}</Text>
-                          <Text style={[styles.recuadroValor, { color: t.text }]}>{entero(c.proveedores)}</Text>
+                          <NumeroAnimado valor={c.proveedores} style={[styles.recuadroValor, { color: t.text }]} />
                           <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{entero(c.articulos)} artículos</Text>
                         </View>
                       ))}
@@ -305,25 +334,126 @@ function EncabezadoInstitucional() {
   );
 }
 
+/** Renglón de una lista desplegable: `clave` es lo que se abre al tocarlo; `id`, si la clave se repite. */
+type Item = { id?: string; clave: string; texto: string; sub?: string };
+
+const plural = (n: number, uno: string, varios: string) => `${entero(n)} ${n === 1 ? uno : varios}`;
+
+/** Hoja de negociación como renglón de aviso: proveedor, tipo, cobertura y cuándo vence. */
+function itemHoja(h: Hoja & { dias: number | null }): Item {
+  const cuando = h.dias === null ? 'sin fecha de vigencia'
+    : h.dias < 0 ? `venció el ${fechaCorta(h.vigencia!)}`
+    : h.dias === 0 ? 'vence hoy'
+    : h.dias === 1 ? 'vence mañana'
+    : `vence el ${fechaCorta(h.vigencia!)} (en ${h.dias} días)`;
+  return { clave: h.clave, texto: `Hoja ${h.clave} · ${h.proveedor}`, sub: `${h.inventario} · ${h.alcance} · ${plural(h.articulos, 'artículo', 'artículos')} · ${cuando}` };
+}
+
+/**
+ * Novedades del Excel: qué cambió desde la versión anterior (artículos nuevos, de baja, con otro precio, hojas nuevas)
+ * y las hojas que vencen esta semana. Cada cifra despliega su lista; al tocar un renglón se abre en Artículos.
+ */
+function PanelNovedades({ novedades: n, semana, hojas, onArticulo, onHoja }: {
+  novedades: Novedades | null; semana: (Hoja & { dias: number | null })[]; hojas: Record<string, Item>;
+  onArticulo: (artId: string) => void; onHoja: (hoja: string) => void;
+}) {
+  const t = useTheme();
+  const fecha = (iso: string) => fechaLarga(isoLocal(new Date(iso)));
+  const art = (x: ArticuloNovedad): Item => ({ clave: x.artId, texto: x.articulo, sub: `${x.marca} · ${x.proveedor} · hoja ${x.negociacion}` });
+  const hoja = (h: string): Item => hojas[h] ?? { clave: h, texto: `Hoja ${h}` };
+  return (
+    <Aparecer orden={1} style={[styles.aviso, { backgroundColor: t.backgroundElement, borderColor: t.border, borderLeftColor: t.accent }]}>
+      <View style={styles.avisoH}>
+        {/* La campana suena una vez si hay algo que ver */}
+        <Sonar activa={!!n || semana.length > 0} style={styles.campana}>
+          <Icono nombre="novedad" color={t.accent} tam={15} />
+        </Sonar>
+        <Text style={[styles.avisoEtq, { color: t.accent }]}>NOVEDADES</Text>
+      </View>
+      <Text style={[styles.avisoTexto, { color: t.text }]}>
+        {n
+          ? `Cambios en el Excel detectados el ${fecha(n.detectado)} a las ${hora(n.detectado)}, comparado con la versión del ${fecha(n.anterior)}.`
+          : 'Sin cambios registrados todavía. Cada vez que se actualice el Excel, aquí verás qué artículos son nuevos, cuáles cambiaron de precio y cuáles se dieron de baja.'}
+      </Text>
+      {n ? (
+        <>
+          <Desplegable color={t.ok} texto={plural(n.nuevos.total, 'artículo nuevo', 'artículos nuevos')}
+            items={n.nuevos.lista.map(art)} total={n.nuevos.total} onPress={onArticulo} />
+          <Desplegable color={t.gold} texto={plural(n.precios.total, 'artículo cambió de precio', 'artículos cambiaron de precio')}
+            items={n.precios.lista.map((p) => ({
+              id: `${p.negociacion}|${p.artId}`, clave: p.artId, texto: p.articulo,
+              sub: `${dinero(p.antes)} → ${dinero(p.despues)} · ${p.marca} · hoja ${p.negociacion}`,
+            }))} onPress={onArticulo} />
+          <Desplegable color={t.danger} texto={plural(n.bajas.total, 'artículo se dio de baja', 'artículos se dieron de baja')}
+            items={n.bajas.lista.map(art)} total={n.bajas.total} />
+          <Desplegable color={t.accent} texto={plural(n.hojasNuevas.length, 'hoja de negociación nueva', 'hojas de negociación nuevas')}
+            items={n.hojasNuevas.map(hoja)} onPress={onHoja} />
+          <Desplegable color={t.muted} texto={plural(n.hojasBaja.length, 'hoja de negociación ya no aparece', 'hojas de negociación ya no aparecen')}
+            items={n.hojasBaja.map((h) => ({ clave: h, texto: `Hoja ${h}` }))} />
+        </>
+      ) : null}
+      <Desplegable color={t.danger} texto={plural(semana.length, 'hoja de negociación vence esta semana', 'hojas de negociación vencen esta semana')}
+        items={semana.map(itemHoja)} onPress={onHoja} />
+    </Aparecer>
+  );
+}
+
+/** Cifra que, al tocarla, despliega su lista. No se muestra si la lista está vacía. */
+function Desplegable({ texto, color, items, total, onPress }: {
+  texto: string; color: string; items: Item[]; total?: number; onPress?: (clave: string) => void;
+}) {
+  const t = useTheme();
+  const [abierto, setAbierto] = useState(false);
+  if (!items.length) return null;
+  const faltan = (total ?? items.length) - items.length;
+  return (
+    <View>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: abierto }} onPress={() => setAbierto(!abierto)}
+        style={({ pressed }) => [styles.despH, pressed && ui.presionado]}>
+        <View style={[styles.punto, { backgroundColor: color }]} />
+        <Text style={[styles.despTexto, { color: t.text }]}>{texto}</Text>
+        <Text style={[styles.enlace, { color: t.accent }]}>{abierto ? 'Ocultar' : 'Ver cuáles'}</Text>
+      </Pressable>
+      {abierto ? (
+        <Animated.View entering={desplegar} style={[styles.hojas, { borderColor: t.border }]}>
+          <ScrollView nestedScrollEnabled>
+            {items.map((it) => (
+              <Pressable key={it.id ?? it.clave} disabled={!onPress} onPress={() => onPress?.(it.clave)}
+                style={({ pressed }) => [styles.despItem, { borderBottomColor: t.border }, pressed && ui.presionado]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.despItemTexto, { color: t.text }]}>{it.texto}</Text>
+                  {it.sub ? <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{it.sub}</Text> : null}
+                </View>
+                {onPress ? <Icono nombre="flecha" color={t.muted} tam={12} /> : null}
+              </Pressable>
+            ))}
+            {faltan > 0 ? <Text style={[styles.hoja, { color: t.muted }]}>y {entero(faltan)} más</Text> : null}
+          </ScrollView>
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
 /** Cifras generales en un solo panel con divisiones. */
 function PanelCifras({ cifras, pie }: {
   cifras: { etiqueta: string; icono: 'proveedor' | 'producto' | 'articulo' | 'estrella'; valor: number; onPress: () => void }[]; pie: string;
 }) {
   const t = useTheme();
   return (
-    <View style={[styles.panel, { backgroundColor: t.backgroundElement, borderColor: t.border }]}>
+    <Aparecer style={[styles.panel, { backgroundColor: t.backgroundElement, borderColor: t.border }]}>
       <View style={styles.cifras}>
         {cifras.map((c, i) => (
           <Pressable key={c.etiqueta} onPress={c.onPress} accessibilityRole="button" accessibilityLabel={`${c.etiqueta}: ${c.valor}`}
             style={({ pressed }) => [styles.cifra, i > 0 && { borderLeftColor: t.border, borderLeftWidth: StyleSheet.hairlineWidth }, pressed && ui.presionado]}>
             <Icono nombre={c.icono} color={t.accent} tam={20} />
-            <Text style={[styles.cifraValor, { color: t.text }]} numberOfLines={1} adjustsFontSizeToFit>{entero(c.valor)}</Text>
+            <NumeroAnimado valor={c.valor} style={[styles.cifraValor, { color: t.text }]} numberOfLines={1} adjustsFontSizeToFit />
             <Text style={[styles.cifraEtq, { color: t.textSecondary }]} numberOfLines={1} adjustsFontSizeToFit>{c.etiqueta}</Text>
           </Pressable>
         ))}
       </View>
       <Text style={[styles.panelPie, { color: t.muted, borderTopColor: t.border }]}>{pie}</Text>
-    </View>
+    </Aparecer>
   );
 }
 
@@ -343,24 +473,26 @@ function HojasNegociacion({ grupos }: { grupos: GrupoHojas[] }) {
             accessibilityState={{ expanded: abierto === g.clave }}
             style={({ pressed }) => [styles.recuadro, { backgroundColor: abierto === g.clave ? t.backgroundSelected : t.background, borderLeftColor: color(g) }, pressed && ui.presionado]}>
             <Text style={[styles.recuadroEtq, { color: t.textSecondary }]}>Hojas {g.inventario} · {g.alcance}</Text>
-            <Text style={[styles.recuadroValor, { color: t.text }]}>{entero(g.hojas)}</Text>
+            <NumeroAnimado valor={g.hojas} style={[styles.recuadroValor, { color: t.text }]} />
             <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{entero(g.articulos)} artículos · {entero(g.proveedores)} proveedores</Text>
           </Pressable>
         ))}
       </View>
       {elegido ? (
-        <View style={[styles.hojas, { borderColor: t.border }]}>
+        // La clave hace que la lista vuelva a entrar al cambiar de recuadro
+        <Animated.View key={elegido.clave} entering={desplegar} style={[styles.hojas, { borderColor: t.border }]}>
           <ScrollView nestedScrollEnabled>
             {elegido.lista.map((h) => <Text key={h} style={[styles.hoja, { color: t.text, borderBottomColor: t.border }]}>{h}</Text>)}
           </ScrollView>
-        </View>
+        </Animated.View>
       ) : null}
     </View>
   );
 }
 
-/** Sección numerada con resumen visible y detalle que se despliega en el mismo lugar. */
-function SeccionResumen({ icono, titulo, descripcion, resumen, detalle, accion, onAccion, textoDetalle = 'Ver detalle' }: {
+/** Sección con resumen visible y detalle que se despliega en el mismo lugar. `orden`: turno en la entrada escalonada. */
+function SeccionResumen({ orden, icono, titulo, descripcion, resumen, detalle, accion, onAccion, textoDetalle = 'Ver detalle' }: {
+  orden: number;
   icono: 'articulo' | 'lista' | 'producto' | 'ubicacion' | 'proveedor';
   titulo: string;
   descripcion: string;
@@ -372,12 +504,9 @@ function SeccionResumen({ icono, titulo, descripcion, resumen, detalle, accion, 
 }) {
   const t = useTheme();
   const [abierto, setAbierto] = useState(false);
-  const alternar = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setAbierto(!abierto);
-  };
+  const alternar = () => setAbierto(!abierto);
   return (
-    <View style={[styles.seccion, { backgroundColor: t.backgroundElement, borderColor: t.border }]}>
+    <Aparecer orden={orden} style={[styles.seccion, { backgroundColor: t.backgroundElement, borderColor: t.border }]}>
       <View style={styles.seccionH}>
         <View style={[styles.seccionIco, { backgroundColor: t.accentSoft }]}>
           <Icono nombre={icono} color={t.accent} tam={18} />
@@ -390,7 +519,7 @@ function SeccionResumen({ icono, titulo, descripcion, resumen, detalle, accion, 
       <View style={[styles.regla, { backgroundColor: t.border }]} />
       <View style={styles.seccionCuerpo}>
         {resumen}
-        {abierto && detalle ? <View style={{ marginTop: Spacing.three }}>{detalle}</View> : null}
+        {abierto && detalle ? <Animated.View entering={desplegar} style={{ marginTop: Spacing.three }}>{detalle}</Animated.View> : null}
       </View>
       {detalle || accion ? (
         <View style={[styles.seccionPie, { borderTopColor: t.border }]}>
@@ -407,7 +536,7 @@ function SeccionResumen({ icono, titulo, descripcion, resumen, detalle, accion, 
           ) : null}
         </View>
       ) : null}
-    </View>
+    </Aparecer>
   );
 }
 
@@ -432,6 +561,8 @@ function Dona({ items, colores, otro, centro, tam = 176 }: {
   const inicios = largos.map((_, i) => largos.slice(0, i).reduce((n, l) => n + l, 0));
   return (
     <View style={[styles.dona, { width: tam, height: tam }]}>
+      {/* Los sectores entran girando; el total del centro cuenta hasta su valor */}
+      <Animated.View entering={girarDona}>
       <Svg width={tam} height={tam}>
         {/* Empieza arriba (las 12) y avanza en el sentido del reloj */}
         <G rotation={-90} origin={`${tam / 2}, ${tam / 2}`}>
@@ -442,8 +573,9 @@ function Dona({ items, colores, otro, centro, tam = 176 }: {
           ))}
         </G>
       </Svg>
+      </Animated.View>
       <View style={styles.donaCentro} pointerEvents="none">
-        <Text style={[styles.donaValor, { color: t.text }]}>{entero(centro)}</Text>
+        <NumeroAnimado valor={centro} style={[styles.donaValor, { color: t.text }]} />
         <Text style={[styles.donaEtq, { color: t.muted }]}>artículos</Text>
       </View>
     </View>
@@ -510,7 +642,7 @@ function Ranking({ items, total, continua = false, titulo, onPress, notas }: {
             </View>
             {notas?.[c.clave] ? <Text style={[styles.recuadroSub, { color: t.textSecondary }]}>{notas[c.clave]}</Text> : null}
             <View style={[styles.rankFondo, { backgroundColor: t.backgroundSelected }]}>
-              <View style={[styles.rankBarra, { width: `${(c.valor / max) * 100}%`, backgroundColor: t.accent }]} />
+              <BarraAnimada fraccion={c.valor / max} color={t.accent} style={styles.rankBarra} retraso={Math.min(i, 10) * 50} />
             </View>
           </View>
           <Text style={[styles.tablaPct, { color: t.muted }]}>{porcentaje(c.valor, total)}</Text>
@@ -572,6 +704,12 @@ const styles = StyleSheet.create({
   seccionIco: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   aviso: { borderWidth: 1, borderLeftWidth: 4, borderRadius: 8, padding: Spacing.three, gap: 4 },
   avisoEtq: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
+  avisoH: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  campana: { width: 15, height: 15, alignItems: 'center', justifyContent: 'center' },
+  despH: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  despTexto: { flex: 1, fontSize: 14, fontWeight: '600' },
+  despItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: Spacing.three, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
+  despItemTexto: { fontSize: 13, fontWeight: '500' },
   avisoTexto: { fontSize: 14, lineHeight: 20 },
   seccion: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
   seccionH: { flexDirection: 'row', gap: Spacing.three, padding: Spacing.three, alignItems: 'center' },

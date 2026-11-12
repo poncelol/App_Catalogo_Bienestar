@@ -12,6 +12,8 @@ export type FiltrosCatalogo = {
   proveedor?: string;
   marca?: string;
   inventario?: string;
+  /** Número de hoja de negociación. */
+  negociacion?: string;
   /** Sin valor: por relevancia si hay texto, por nombre si no. */
   orden?: Orden;
 };
@@ -83,7 +85,8 @@ function ordenar(arts: Articulo[], f: FiltrosCatalogo): Articulo[] {
   const orden = f.orden ?? (ps.length ? 'relevancia' : 'nombre');
   const puntos = new Map<Articulo, number>();
   const lista = arts.filter((a) => {
-    if ((f.proveedor && a.cve !== f.proveedor) || (f.marca && a.marca !== f.marca) || (f.inventario && a.inventario !== f.inventario)) {
+    if ((f.proveedor && a.cve !== f.proveedor) || (f.marca && a.marca !== f.marca) || (f.inventario && a.inventario !== f.inventario)
+      || (f.negociacion && a.negociacion !== f.negociacion)) {
       return false;
     }
     if (!ps.length) return true;

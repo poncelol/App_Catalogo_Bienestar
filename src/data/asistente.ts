@@ -7,7 +7,8 @@
  * probarlo y usarlo en cualquier plataforma.
  */
 import {
-  REGIONES, SIGLAS, contar, diasVigencia, dinero, fechaCorta, fechaLarga, hoyISO, nArt, sinAcentos, type Articulo,
+  REGIONES, SIGLAS, contar, diasHasta, diasVigencia, dinero, fechaCorta, fechaLarga, hojasNegociacion, hoyISO, nArt, sinAcentos,
+  type Articulo, type Hoja,
 } from '@/data/abasto';
 import { filtrarArticulos, palabras, type Orden } from '@/data/busqueda';
 
@@ -35,6 +36,10 @@ export type Mensaje = {
   /** Proveedores o productos que se pidieron («¿quién vende aceite?»), como tarjetas. */
   proveedores?: Grupo[];
   productos?: Grupo[];
+  /** Hojas de negociación, tipos de inventario y regiones, también como tarjetas. */
+  hojas?: Grupo[];
+  inventarios?: Grupo[];
+  regiones?: Grupo[];
   /** Lo que la app entendió que se buscó («vinagre · región Metropolitana»), para que se note si tomó la pregunta anterior. */
   entendido?: string;
 };
@@ -45,6 +50,9 @@ export type PropsChat = {
   onVerArticulo: (a: Articulo) => void;
   onVerProveedor: (cve: string) => void;
   onVerProducto: (prod: string) => void;
+  onVerHoja: (negociacion: string) => void;
+  onVerInventario: (inventario: string) => void;
+  onVerRegion: (sigla: string) => void;
 };
 
 /** En qué va el modelo: revisando si ya está descargado, descargando, cargando en memoria, listo o con error. */
@@ -89,6 +97,8 @@ export function instrucciones() {
     '- Empieza contestando directo la pregunta en una frase (por ejemplo: "Encontré 12 artículos de vinagre; el más económico es…").',
     '- Si hay varios, menciona solo 2 o 3 de los más útiles, cada uno en una viñeta con nombre, marca, presentación y precio.',
     '- Si preguntan por proveedores, di cuántos son (el número que traen los datos) y nombra los 3 con más artículos, con cuántos artículos tiene cada uno.',
+    '- Una hoja de negociación es el acuerdo con un proveedor: fija sus artículos, precios, tipo de inventario (PAR, Oferta u otro), cobertura y vigencia. Si preguntan por hojas, di cuántas son y nombra 2 o 3 con su proveedor y la fecha en que vencen.',
+    '- Si preguntan por tipos de inventario o por regiones, da la cifra de cada uno tal como viene en los datos.',
     '- No copies los datos tal cual ni uses claves, códigos o abreviaturas (ART., CVE, PROD., c/u): escribe frases completas.',
     '- Si los datos traen una "Comparación", empieza por su "Conclusión" y luego da la cifra principal de cada lado.',
     '- Si traen varias partes ("Parte 1", "Parte 2"), contesta cada parte en su propia viñeta, en el mismo orden.',
@@ -149,7 +159,8 @@ function renglon(a: Articulo) {
   const pm = porMedida(a);
   return `- ${a.articulo}, marca ${a.marca}, presentación ${a.presentacion}. Precio: ${dinero(a.costoUnit)} por pieza`
     + `${pm ? ` (${dinero(pm.precio)} el ${pm.unidad})` : ''}. `
-    + `Proveedor: ${a.provCorto}. ${inventario}, ${vigencia(a)}. Se surte en: ${cobertura}. (ART. ${a.artId})`;
+    + `Proveedor: ${a.provCorto}. ${inventario}, hoja de negociación ${a.negociacion || 'sin número'}, ${vigencia(a)}. `
+    + `Se surte en: ${cobertura}. (ART. ${a.artId})`;
 }
 
 function rango(arts: Articulo[]) {
@@ -190,7 +201,7 @@ const lista = (cs: { etiqueta: string; valor: number }[], n = 5) =>
  * `completo` es todo el catálogo cuando `catalogo` ya viene acotado (por precio o por lo excluido).
  */
 export function crearHerramientas(
-  catalogo: () => Articulo[], alEncontrar: (arts: Articulo[]) => void, completo: () => Articulo[] = catalogo,
+  catalogo: () => Articulo[], alEncontrar: (arts: Articulo[], filas?: Articulo[]) => void, completo: () => Articulo[] = catalogo,
 ): Herramienta[] {
   return [
     {
@@ -223,6 +234,7 @@ export function crearHerramientas(
         // 0: solo las cifras, sin la lista de artículos (cuando casi no queda memoria)
         const limite = args.limite === 0 ? 0 : numero(args.limite) ?? MAX_ARTICULOS;
         const dias = numero(args.vence_en_dias);
+        const vencidos = args.vencidos === true;
         const orden = (['relevancia', 'menor', 'mayor', 'nombre'] as const).find((o) => o === texto(args.orden)) as Orden | undefined;
         const hoy = hoyISO();
         const base = catalogo().filter((a) => {
@@ -235,6 +247,10 @@ export function crearHerramientas(
             const d = diasVigencia(a, hoy);
             if (d === null || d < 0 || d > dias) return false;
           }
+          if (vencidos) {
+            const d = diasVigencia(a, hoy);
+            if (d === null || d >= 0) return false;
+          }
           return true;
         });
         // Si lo buscado es un producto («aceite», «frijol»), solo ese producto: si no, «aceite» por precio
@@ -244,7 +260,9 @@ export function crearHerramientas(
         const delProducto = (a: Articulo) => ps.every((p) => sinAcentos(a.producto).includes(p.length > 3 ? p.replace(/e?s$/, '') : p));
         const acotado = ps.length && completo().some(delProducto) ? base.filter(delProducto) : base;
         const encontrados = filtrarArticulos(acotado, { texto: q || undefined, orden });
-        alEncontrar(encontrados);
+        // Además de un renglón por artículo, todos sus renglones (uno por hoja) para contar hojas y tipos de inventario
+        const ids = new Set(encontrados.map((a) => a.artId));
+        alEncontrar(encontrados, acotado.filter((a) => ids.has(a.artId)));
         if (!encontrados.length) return 'No se encontraron artículos con esos criterios.';
         const resto = encontrados.length - limite;
         return [
@@ -329,6 +347,7 @@ export function crearHerramientas(
         const pronto = nArt(arts.filter((_, i) => dias[i] !== null && dias[i]! >= 0 && dias[i]! <= 30));
         return [
           `Artículos: ${nArt(arts)}. Proveedores: ${new Set(arts.map((a) => a.cve)).size}. Productos: ${new Set(arts.map((a) => a.prod)).size}. Marcas: ${new Set(arts.map((a) => a.marca)).size}.`,
+          `Hojas de negociación: ${new Set(arts.map((a) => a.negociacion).filter(Boolean)).size}. Gerencias regionales: ${SIGLAS.length}.`,
           `Por tipo de inventario: ${lista(contar(arts, (a) => a.inventario), 8)}.`,
           `Productos con más artículos: ${lista(contar(arts, (a) => a.producto))}.`,
           `Vigencia vencida: ${vencidos}. Vencen en 30 días o menos: ${pronto}.`,
@@ -355,8 +374,9 @@ const VACIAS = new Set(`
   barato barata baratos baratas economico economica economicos economicas caro cara caros caras mejor peor
   menor mayor mas menos alto alta bajo baja
   oferta ofertas promocion promociones inventario par tipo tipos
-  vence vencen vencer vencido vencidos vigencia vigente vigentes caduca caducan pronto proximo proximos proximas dias
-  dia mes semana
+  vence vencen vencer vencido vencidos vencida vencidas vencio vencieron vigencia vigente vigentes caduca caducan
+  caducado caducados pronto proximo proximos proximas dias dia mes semana hoy
+  hoja hojas negociacion negociaciones acuerdo acuerdos
   region regiones gerencia gerencias zona estado estados unidad unidades
   proveedor proveedores marca marcas empresa empresas
   dato datos interesante interesantes resumen total totales general cifras numero numeros estadistica estadisticas
@@ -384,8 +404,15 @@ function aparece(ps: string[], p: string) {
 
 /** Lo que entiende la app de una pregunta: qué pide y sobre qué (el tema y los filtros). */
 export type Intencion = {
-  /** Qué se pide: artículos (lo normal), la lista de proveedores, de productos o de marcas, o cifras generales. */
-  pide: 'articulos' | 'proveedores' | 'productos' | 'marcas' | 'resumen';
+  /**
+   * Qué se pide: artículos (lo normal); la lista de proveedores, productos, marcas, hojas de negociación, tipos de
+   * inventario o regiones; o cifras generales.
+   */
+  pide: 'articulos' | 'proveedores' | 'productos' | 'marcas' | 'hojas' | 'inventarios' | 'regiones' | 'resumen';
+  /** Número de hoja de negociación nombrada («hoja 1099»). */
+  hoja?: string;
+  /** Solo lo que ya venció. */
+  vencidas?: boolean;
   /** Palabras a buscar en los artículos. */
   clave: string[];
   /** Primera palabra del producto nombrado («aceite»). */
@@ -408,21 +435,73 @@ export type Intencion = {
   omitidos?: number;
 };
 
-/** Proveedor o producto con cuántos artículos tiene, para las tarjetas del chat. */
-export type Grupo = { clave: string; nombre: string; articulos: number };
+/** Proveedor, producto, hoja, tipo de inventario o región con cuántos artículos tiene, para las tarjetas del chat. */
+export type Grupo = { clave: string; nombre: string; articulos: number; detalle?: string };
 
 export type Consulta = {
   /** Datos del catálogo para el modelo (vacío si la pregunta no trata del catálogo). */
   datos: string;
-  /** Tarjetas: artículos, proveedores o productos, según lo que se pidió. */
+  /** Tarjetas, según lo que se pidió. */
   articulos: Articulo[];
   proveedores: Grupo[];
   productos: Grupo[];
+  hojas: Grupo[];
+  inventarios: Grupo[];
+  regiones: Grupo[];
 };
 
-export const tieneTema = (i: Intencion) => !!(i.clave.length || i.producto || i.proveedor || i.marca);
+export const tieneTema = (i: Intencion) => !!(i.clave.length || i.producto || i.proveedor || i.marca || i.hoja);
 export const tieneFiltros = (i: Intencion) =>
-  !!(i.region || i.inventario || i.orden || i.vence !== undefined || i.precioMin !== undefined || i.precioMax !== undefined || i.excluir);
+  !!(i.region || i.inventario || i.orden || i.vence !== undefined || i.vencidas || i.precioMin !== undefined || i.precioMax !== undefined || i.excluir);
+
+/** Claves de hoja por número sin ceros ni letras («GA01099/26» → «1099»), para reconocerlas en la pregunta. */
+const clavesHoja = new WeakMap<Articulo[], Map<string, string>>();
+function hojaPorNumero(arts: Articulo[]) {
+  let m = clavesHoja.get(arts);
+  if (!m) {
+    m = new Map();
+    for (const a of arts) {
+      const n = a.negociacion.match(/\d+/)?.[0].replace(/^0+/, '');
+      if (n && !m.has(n)) m.set(n, a.negociacion);
+    }
+    clavesHoja.set(arts, m);
+  }
+  return m;
+}
+
+/** Hoja nombrada en la pregunta: «hoja 1099», «negociación GA01099/26», «GA-1099». */
+function hojaDe(q: string, arts: Articulo[]): { clave: string; texto: string } | undefined {
+  const m = q.match(/\b(?:hojas?|negociacion(?:es)?)(?:\s+de\s+negociacion)?\s*(?:no\.?|num(?:ero)?\.?|#)?\s*(?:ga[-\s]?)?0*(\d{1,6})(?:\/\d{2})?\b/)
+    ?? q.match(/\bga[-\s]?0*(\d{1,6})(?:\/\d{2})?\b/);
+  const clave = m ? hojaPorNumero(arts).get(m[1]) : undefined;
+  return clave ? { clave, texto: m![0] } : undefined;
+}
+
+/** Tipo de inventario nombrado: Oferta, PAR u otro del catálogo («leche 301», «inventario 75»). */
+function inventarioDe(q: string, arts: Articulo[]): string | undefined {
+  if (/\boferta|promocion/.test(q)) return 'Oferta';
+  if (/\bpar\b/.test(q)) return 'PAR';
+  for (const inv of new Set(arts.map((a) => a.inventario))) {
+    if (inv === 'PAR' || inv === 'Oferta' || inv === 'Sin dato') continue;
+    const ps = palabras(inv);
+    if (ps.length > 1 && q.includes(ps.join(' '))) return inv;
+    const num = ps.find((p) => /^\d+$/.test(p));
+    if (num && (new RegExp(String.raw`\b${ps[0]}\b\D{0,25}\b${num}\b`).test(q)
+      || new RegExp(String.raw`\b(inventario|tipo)\s+(de\s+inventario\s+)?${num}\b`).test(q))) return inv;
+  }
+  return undefined;
+}
+
+/** Qué lista se pide; si nombra varias, la primera que aparece («¿en qué regiones hay productos de…?» → regiones). */
+const PIDE: [Exclude<Intencion['pide'], 'articulos' | 'resumen'>, RegExp][] = [
+  ['proveedores', /\bproveedor(es)?\b|\bempresas?\b|\bquien(es)?\b.*\b(vende|venden|surte|surten|maneja|manejan|ofrece|ofrecen|trae|traen)\b/],
+  ['marcas', /\bmarcas?\b/],
+  ['productos', /\bproductos?\b|\bcategorias?\b/],
+  ['hojas', /\bhojas?\b|\bnegociacion(es)?\b|\bacuerdos?\b/],
+  ['regiones', /\bregiones\b|\bgerencias\b|\bzonas\b|\bpor (region|gerencia|zona)\b|\b(que|cuales?|cuantas|en que|a que)\s+(region|gerencia|zona)\b/],
+  // (o PAR y Oferta en la misma pregunta: «¿cuántos PAR y cuántos en oferta?»)
+  ['inventarios', /\btipos? de inventario|\binventarios\b|\bpor (tipo|inventario)\b|\bpar\b.*\bofertas?\b|\bofertas?\b.*\bpar\b/],
+];
 
 /** Rango de precio de la pregunta: «menos de $30», «hasta 50 pesos», «más de 100», «entre 20 y 40». */
 function rangoPrecio(q: string): { precioMin?: number; precioMax?: number } {
@@ -463,11 +542,17 @@ function entenderParte(pregunta: string, arts: Articulo[]): Intencion {
   const iMenor = q.search(/barat|economic|menor (precio|costo)|mas bajo/);
   const iMayor = q.search(/\bcar[oa]s?\b|mayor (precio|costo)|mas alto/);
   const orden = iMenor >= 0 && (iMayor < 0 || iMenor < iMayor) ? 'menor' : iMayor >= 0 ? 'mayor' : undefined;
-  const inventario = /\boferta|promocion/.test(q) ? 'Oferta' : /\bpar\b/.test(q) ? 'PAR' : undefined;
-  const vence = /venc|vigencia|caduc/.test(q) ? Number(q.match(/(\d+)\s*dias?/)?.[1] ?? 30) : undefined;
+  const inventario = inventarioDe(q, arts);
+  const vencidas = /\bvencid[oa]s?\b|\bcaducad[oa]s?\b|\bya (vencio|vencieron|caduco|caducaron)\b/.test(q) || undefined;
+  const vence = !vencidas && /venc|vigencia|caduc/.test(q)
+    ? Number(q.match(/(\d+)\s*dias?/)?.[1] ?? (/\bsemana\b/.test(q) ? 7 : 30))
+    : undefined;
+  const hoja = hojaDe(q, arts);
   const region = SIGLAS.find((s) => aparece(ps, sinAcentos(s)) && s.length > 2)
     ?? SIGLAS.find((s) => [REGIONES[s].nombre, ...REGIONES[s].estados, ...REGIONES[s].unidades].some((l) => q.includes(sinAcentos(l))));
   const usadas = new Set<string>();
+  if (hoja) palabras(hoja.texto).forEach((w) => usadas.add(w));
+  if (inventario && inventario !== 'PAR' && inventario !== 'Oferta') palabras(inventario).forEach((w) => usadas.add(w));
   if (region) for (const l of [region, REGIONES[region].nombre, ...REGIONES[region].estados]) palabras(l).forEach((w) => usadas.add(w));
 
   // Proveedor: el que más palabras propias de su nombre comparte con la pregunta. No cuentan las que también son
@@ -499,16 +584,20 @@ function entenderParte(pregunta: string, arts: Articulo[]): Intencion {
     .find(Boolean);
 
   const i: Intencion = {
-    pide: 'articulos', clave, producto, marca, region, inventario, orden, vence, ...rangoPrecio(q),
+    pide: 'articulos', clave, producto, marca, region, inventario, orden, vence, vencidas, hoja: hoja?.clave, ...rangoPrecio(q),
     proveedor: proveedor && { cve: proveedor.cve, nombre: proveedor.nombre },
   };
-  // Qué pide: «¿quién vende…?» y «proveedores» → proveedores; «marcas» → marcas; «productos» → productos.
-  // «¿Cuántos productos tenemos?» o «un dato interesante», sin tema ni filtros, son cifras generales
-  // «de ese proveedor», «de esa marca» señalan algo ya dicho, no piden la lista
-  const sinReferencias = q.replace(/\b(de |del )?(ese|este|el mismo|dicho|su|esa|esta|la misma)\s+(proveedor|empresa|marca|producto)\b/g, '');
-  if (/\bproveedor(es)?\b|\bempresas?\b|\bquien(es)?\b.*\b(vende|venden|surte|surten|maneja|manejan|ofrece|ofrecen|trae|traen)\b/.test(sinReferencias)) i.pide = 'proveedores';
-  else if (/\bmarcas?\b/.test(sinReferencias)) i.pide = 'marcas';
-  else if (/\bproductos?\b|\bcategorias?\b/.test(sinReferencias)) i.pide = 'productos';
+  // Qué pide: «¿quién vende…?» y «proveedores» → proveedores; «marcas», «productos», «hojas de negociación»,
+  // «regiones», «tipos de inventario» → esa lista. «¿Cuántos productos tenemos?» o «un dato interesante», sin tema ni
+  // filtros, son cifras generales. «de ese proveedor», «de esa marca», «esa hoja» señalan algo ya dicho, no piden la
+  // lista; tampoco «la hoja 1099», que pide sus artículos
+  const sinReferencias = q
+    .replace(/\b(de |del )?(ese|este|el mismo|dicho|su|esa|esta|la misma)\s+(proveedor|empresa|marca|producto|hoja|negociacion)\b/g, '')
+    .replace(hoja?.texto ?? /$^/, '');
+  const pedido = PIDE.map(([p, re]) => ({ p, en: sinReferencias.search(re) })).filter((x) => x.en >= 0).sort((x, y) => x.en - y.en)[0];
+  if (pedido) i.pide = pedido.p;
+  // Para comparar tipos de inventario no se filtra por uno («¿cuántos PAR y cuántos en oferta?»)
+  if (i.pide === 'inventarios') i.inventario = undefined;
   // («¿cuántos proveedores hay?» sí pide la lista de proveedores, con su total)
   if (i.pide === 'articulos' && !tieneTema(i) && !tieneFiltros(i) && /cuant|total|resumen|interesante|general|catalogo|estadistic|cifra/.test(q)) i.pide = 'resumen';
   return i;
@@ -530,7 +619,7 @@ const SEGUIMIENTO = new RegExp([
  * Palabras que abren una búsqueda nueva sobre todo el catálogo: «artículos de la región Metropolitana»,
  * «¿qué proveedores tenemos?», «¿cuántos proveedores hay en Chiapas?».
  */
-const GENERAL = /\b(articulos?|productos?|proveedor(es)?|empresas?|marcas?|catalogo|todo|todos|todas|cualquier|general|lista|listado|tenemos|total|cuant[oa]s)\b/;
+const GENERAL = /\b(articulos?|productos?|proveedor(es)?|empresas?|marcas?|hojas|negociaciones|regiones|gerencias|inventarios|catalogo|todo|todos|todas|cualquier|general|lista|listado|tenemos|total|cuant[oa]s)\b/;
 
 /**
  * Une la pregunta con la anterior cuando no trae tema propio: «¿Qué aceites hay?» → «¿quién los vende?» busca
@@ -542,6 +631,7 @@ export function conContexto(actual: Intencion, previa: Intencion | null, pregunt
   const i: Intencion = { ...actual };
   if (!i.proveedor && previa.proveedor && /\b(ese|este|el mismo|dicho|del mismo)\s+(proveedor|empresa)\b|\bellos\b/.test(q)) i.proveedor = previa.proveedor;
   if (!i.marca && previa.marca && /\b(esa|esta|la misma|de la misma)\s+marca\b/.test(q)) i.marca = previa.marca;
+  if (!i.hoja && previa.hoja && /\b(esa|esta|la misma|de la misma)\s+(hoja|negociacion)\b/.test(q)) i.hoja = previa.hoja;
   if (!i.producto && !i.clave.length && previa.clave.length && /\b(ese|este|el mismo)\s+(producto|articulo)\b/.test(q)) {
     i.clave = previa.clave;
     i.producto = previa.producto;
@@ -578,7 +668,9 @@ function filtrosDe(nueva: Intencion, previa: Intencion): Partial<Intencion> {
   return {
     region: nueva.region ?? previa.region,
     inventario: nueva.inventario ?? previa.inventario,
-    vence: nueva.vence ?? previa.vence,
+    hoja: nueva.hoja ?? previa.hoja,
+    vence: nueva.vence ?? (nueva.vencidas ? undefined : previa.vence),
+    vencidas: nueva.vencidas ?? (nueva.vence !== undefined ? undefined : previa.vencidas),
     orden: nueva.orden ?? previa.orden,
     precioMin: nueva.precioMin ?? previa.precioMin,
     precioMax: nueva.precioMax ?? previa.precioMax,
@@ -698,6 +790,9 @@ function armar(i: Intencion, arts: Articulo[], limite: number, resumen: boolean,
     articulos: unicos(intercalar(resultados.map((r) => r.articulos)), (a) => a.artId),
     proveedores: unicos(intercalar(resultados.map((r) => r.proveedores)), (g) => g.clave).slice(0, 6),
     productos: unicos(intercalar(resultados.map((r) => r.productos)), (g) => g.clave).slice(0, 6),
+    hojas: unicos(intercalar(resultados.map((r) => r.hojas)), (g) => g.clave).slice(0, 6),
+    inventarios: unicos(intercalar(resultados.map((r) => r.inventarios)), (g) => g.clave).slice(0, 6),
+    regiones: unicos(intercalar(resultados.map((r) => r.regiones)), (g) => g.clave).slice(0, 6),
   };
 }
 
@@ -771,25 +866,32 @@ function consultarParte(i: Intencion, todos: Articulo[], limite: number, resumen
   const raiz = i.producto?.replace(/e?s$/, '') ?? '';
   const delProducto = (a: Articulo) => !i.producto || !(i.marca || i.proveedor)
     || palabras(a.producto)[0] === i.producto || palabras(a.articulo).some((w) => w.startsWith(raiz));
-  const arts = i.excluir || i.precioMin !== undefined || i.precioMax !== undefined || (i.producto && (i.marca || i.proveedor))
+  const arts = i.excluir || i.hoja || i.precioMin !== undefined || i.precioMax !== undefined || (i.producto && (i.marca || i.proveedor))
     ? todos.filter((a) => !excluido(a, i.excluir) && delProducto(a)
+      && (!i.hoja || a.negociacion === i.hoja)
       && (i.precioMin === undefined || (a.costoUnit !== null && a.costoUnit >= i.precioMin))
       && (i.precioMax === undefined || (a.costoUnit !== null && a.costoUnit <= i.precioMax)))
     : todos;
   let ultimos: Articulo[] = [];
-  const [buscar, proveedorH, productoH, resumenH] = crearHerramientas(() => arts, (a) => {
+  let ultimasFilas: Articulo[] = [];
+  const [buscar, proveedorH, productoH, resumenH] = crearHerramientas(() => arts, (a, filas) => {
     ultimos = a;
+    ultimasFilas = filas ?? a;
   }, () => todos);
-  const vacia: Consulta = { datos: '', articulos: [], proveedores: [], productos: [] };
+  const vacia: Consulta = { datos: '', articulos: [], proveedores: [], productos: [], hojas: [], inventarios: [], regiones: [] };
   if (i.pide === 'resumen') return { ...vacia, datos: resumenH.execute({}) };
 
-  const filtros = { inventario: i.inventario, region: i.region, orden: i.orden, vence_en_dias: i.vence, proveedor: i.proveedor?.nombre, limite };
+  const filtros = {
+    inventario: i.inventario, region: i.region, orden: i.orden, vence_en_dias: i.vence, vencidos: i.vencidas,
+    proveedor: i.proveedor?.nombre, limite,
+  };
   const hayFiltros = arts !== todos || Object.entries(filtros).some(([k, v]) => k !== 'limite' && v !== undefined);
   const texto = [i.marca, ...i.clave].filter(Boolean).join(' ');
 
   // Artículos del tema; si con todas las palabras no hay nada, con cada una, y luego solo con marca y filtros
   let busqueda = '';
   let subconjunto: Articulo[] | null = null;
+  let filas: Articulo[] | null = null;
   if (texto || hayFiltros) {
     const sinNada = (r: string) => r.startsWith('No se encontraron');
     busqueda = buscar.execute({ ...filtros, texto });
@@ -800,17 +902,30 @@ function consultarParte(i: Intencion, todos: Articulo[], limite: number, resumen
     // (solo si queda una marca o un proveedor: con solo filtros saldría todo, p. ej. todas las ofertas, y no el tema)
     if (sinNada(busqueda) && i.clave.length && (i.marca || i.proveedor)) busqueda = buscar.execute({ ...filtros, texto: i.marca ?? '' });
     subconjunto = ultimos;
+    filas = ultimasFilas;
   }
 
   const tema = [
     texto && `«${texto}»`,
     i.proveedor && !texto && `de ${i.proveedor.nombre}`,
+    i.hoja && `de la hoja ${i.hoja}`,
     i.region && `en la región ${REGIONES[i.region].nombre}`,
     i.inventario && `en ${i.inventario}`,
     i.vence !== undefined && `que vencen en ${i.vence} días o menos`,
+    i.vencidas && 'con la vigencia vencida',
     textoPrecio(i),
     i.excluir && `sin ${nombreExcluido(i.excluir)}`,
   ].filter(Boolean).join(' ');
+
+  if (i.pide === 'hojas' || i.pide === 'inventarios' || i.pide === 'regiones') {
+    // Por renglón, no por artículo: un artículo cuenta en cada hoja o tipo de inventario en que está
+    const base = filas ?? arts;
+    if (!base.length) return { ...vacia, datos: `No encontré artículos ${tema}.` };
+    const n = limite >= MAX_ARTICULOS ? 12 : limite + 4;
+    if (i.pide === 'hojas') return { ...vacia, ...porHoja(base, i, tema, n) };
+    if (i.pide === 'inventarios') return { ...vacia, ...porInventario(base, tema) };
+    return { ...vacia, ...porRegion(base, tema) };
+  }
 
   if (i.pide === 'proveedores' || i.pide === 'productos' || i.pide === 'marcas') {
     const base = subconjunto ?? arts;
@@ -866,12 +981,111 @@ function consultarParte(i: Intencion, todos: Articulo[], limite: number, resumen
     partes.push(productoH.execute({ nombre: i.producto }));
     if (!subconjunto) tarjetas = ultimos;
   }
+  // La hoja nombrada («hoja 1099»): primero sus datos generales
+  const hoja = i.hoja ? hojasNegociacion(arts)[0] : undefined;
+  if (hoja) partes.unshift(`Hoja de negociación ${hoja.clave}: ${renglonHoja(hoja)}`);
   if (busqueda) partes.push(busqueda);
   const vistos = new Set<string>();
   const articulos = tarjetas.filter((a) => !vistos.has(a.artId) && vistos.add(a.artId));
   // Bajo los artículos, quién los vende: el proveedor nombrado o los que más artículos tienen de lo encontrado
-  // (el nombrado sale aunque la búsqueda no encuentre nada)
-  return { ...vacia, datos: partes.join('\n\n'), articulos, proveedores: tarjetasProveedores(i.proveedor ? arts : articulos, i.proveedor?.cve) };
+  // (el nombrado sale aunque la búsqueda no encuentre nada). Y la hoja, el tipo de inventario o la región nombrados
+  const conFilas = filas ?? arts;
+  return {
+    ...vacia,
+    datos: partes.join('\n\n'),
+    articulos,
+    proveedores: tarjetasProveedores(i.proveedor ? arts : articulos, i.proveedor?.cve),
+    hojas: hoja ? [tarjetaHoja(hoja)] : [],
+    inventarios: i.inventario ? porInventario(conFilas.filter((a) => a.inventario === i.inventario), '').inventarios : [],
+    regiones: i.region ? porRegion(conFilas, '').regiones.filter((g) => g.clave === i.region) : [],
+  };
+}
+
+/** «1 proveedor», «3 proveedores». */
+const cuenta = (n: number, uno: string, varios = /[aeiou]$/.test(uno) ? `${uno}s` : `${uno}es`) => `${n} ${n === 1 ? uno : varios}`;
+
+/** Cuándo vence una hoja, en palabras. */
+function cuandoVence(h: Hoja) {
+  const d = diasHasta(h.vigencia);
+  if (d === null) return 'sin fecha de vigencia';
+  if (d < 0) return `venció el ${fechaCorta(h.vigencia!)}`;
+  if (d === 0) return 'vence hoy';
+  return `vence el ${fechaCorta(h.vigencia!)} (en ${d} ${d === 1 ? 'día' : 'días'})`;
+}
+
+const renglonHoja = (h: Hoja) =>
+  `proveedor ${h.proveedor}; ${h.articulos} ${h.articulos === 1 ? 'artículo' : 'artículos'}; inventario ${h.inventario}; `
+  + `cobertura ${h.alcance === 'Nacional' ? 'nacional' : h.alcance === 'Regional' ? 'regional' : 'sin dato'}; ${cuandoVence(h)}.`;
+
+const tarjetaHoja = (h: Hoja): Grupo => ({
+  clave: h.clave, nombre: `Hoja ${h.clave} · ${h.proveedor}`, articulos: h.articulos,
+  detalle: `${h.inventario} · ${h.alcance} · ${cuandoVence(h)}`,
+});
+
+/** Hojas de negociación de unos artículos: las que vencen primero si se preguntó por vigencia; si no, las más grandes. */
+function porHoja(base: Articulo[], i: Intencion, tema: string, n: number): Pick<Consulta, 'datos' | 'hojas'> {
+  const hojas = hojasNegociacion(base);
+  const dias = (h: Hoja) => diasHasta(h.vigencia) ?? Infinity;
+  hojas.sort(i.vence !== undefined || i.vencidas ? (x, y) => dias(x) - dias(y) : (x, y) => y.articulos - x.articulos);
+  const porTipo = new Map<string, number>();
+  for (const h of hojas) porTipo.set(h.inventario, (porTipo.get(h.inventario) ?? 0) + 1);
+  const tipos = [...porTipo].map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((x, y) => y.valor - x.valor);
+  return {
+    datos: [
+      `${hojas.length} ${hojas.length === 1 ? 'hoja de negociación' : 'hojas de negociación'}${tema ? ` con artículos ${tema}` : ' en el catálogo'}`
+        + `${hojas.length > n ? `; estas son las primeras ${n}` : ''}.`,
+      `Hojas por tipo de inventario: ${lista(tipos, 8)}.`,
+      ...hojas.slice(0, n).map((h) => `- Hoja ${h.clave}: ${renglonHoja(h)}`),
+    ].join('\n'),
+    hojas: hojas.slice(0, 8).map(tarjetaHoja),
+  };
+}
+
+/** Tipos de inventario (PAR, Oferta y los demás) con sus artículos, hojas y proveedores. */
+function porInventario(base: Articulo[], tema: string): Pick<Consulta, 'datos' | 'inventarios'> {
+  const tipos = contar(base, (a) => a.inventario).map((c) => {
+    const suyos = base.filter((a) => a.inventario === c.clave);
+    return {
+      ...c, suyos,
+      hojas: new Set(suyos.map((a) => a.negociacion).filter(Boolean)).size,
+      proveedores: new Set(suyos.map((a) => a.cve)).size,
+    };
+  });
+  return {
+    datos: [
+      `${tipos.length} ${tipos.length === 1 ? 'tipo de inventario' : 'tipos de inventario'}${tema ? ` con artículos ${tema}` : ' en el catálogo'}; `
+        + `${nArt(base)} artículos en total (un artículo puede estar en más de un tipo, por eso la suma puede ser mayor):`,
+      ...tipos.map((c) => `- ${c.etiqueta}: ${cuenta(c.valor, 'artículo')}, ${cuenta(c.hojas, 'hoja de negociación', 'hojas de negociación')}, `
+        + `${cuenta(c.proveedores, 'proveedor')}, costo unitario ${rango(c.suyos)}.`),
+    ].join('\n'),
+    inventarios: tipos.map((c) => ({
+      clave: c.clave, nombre: c.etiqueta, articulos: c.valor,
+      detalle: `${cuenta(c.hojas, 'hoja')} · ${cuenta(c.proveedores, 'proveedor')}`,
+    })),
+  };
+}
+
+/** Gerencias regionales a las que llegan unos artículos (los de cobertura nacional llegan a todas). */
+function porRegion(base: Articulo[], tema: string): Pick<Consulta, 'datos' | 'regiones'> {
+  const nacionales = nArt(base.filter((a) => a.alcance === 'Nacional'));
+  const regiones = SIGLAS.map((s) => {
+    const suyos = base.filter((a) => a.regiones.includes(s));
+    return {
+      s, n: nArt(suyos), solo: nArt(suyos.filter((a) => a.alcance !== 'Nacional')), proveedores: new Set(suyos.map((a) => a.cve)).size,
+    };
+  }).filter((r) => r.n).sort((x, y) => y.n - x.n || x.s.localeCompare(y.s));
+  if (!regiones.length) return { datos: `Los artículos ${tema} no tienen cobertura registrada.`, regiones: [] };
+  return {
+    datos: [
+      `${regiones.length} de ${SIGLAS.length} gerencias regionales reciben artículos${tema ? ` ${tema}` : ' del catálogo'}. `
+        + `Son ${nArt(base)} artículos; ${nacionales} tienen cobertura nacional y llegan a todas.`,
+      ...regiones.map((r) => `- ${REGIONES[r.s].nombre} (${r.s}): ${cuenta(r.n, 'artículo')} (${r.solo} solo regionales), ${cuenta(r.proveedores, 'proveedor')}.`),
+    ].join('\n'),
+    regiones: regiones.slice(0, 6).map((r) => ({
+      clave: r.s, nombre: `Región ${REGIONES[r.s].nombre}`, articulos: r.n,
+      detalle: `${r.s} · ${cuenta(r.proveedores, 'proveedor')} · ${r.solo} regionales`,
+    })),
+  };
 }
 
 function textoPrecio(i: Intencion) {
@@ -894,12 +1108,17 @@ export function describir(i: Intencion): string {
   if (i.partes?.length) return i.partes.map((p) => describir(p)).join(i.comparar ? '  vs  ' : '  +  ');
   if (i.pide === 'resumen') return '';
   const partes = [
-    { proveedores: 'Proveedores', productos: 'Productos', marcas: 'Marcas', articulos: '' }[i.pide],
+    {
+      proveedores: 'Proveedores', productos: 'Productos', marcas: 'Marcas', hojas: 'Hojas de negociación',
+      inventarios: 'Tipos de inventario', regiones: 'Regiones', articulos: '',
+    }[i.pide],
     [...i.clave, i.marca].filter(Boolean).join(' '),
     i.proveedor && `de ${i.proveedor.nombre}`,
+    i.hoja && `hoja ${i.hoja}`,
     i.region && `región ${REGIONES[i.region].nombre}`,
     i.inventario === 'Oferta' ? 'en oferta' : i.inventario && `inventario ${i.inventario}`,
     i.vence !== undefined && `vencen en ${i.vence} días o menos`,
+    i.vencidas && 'vencidos',
     textoPrecio(i),
     i.excluir && `sin ${nombreExcluido(i.excluir)}`,
     i.orden && (i.orden === 'menor' ? 'más baratos primero' : 'más caros primero'),

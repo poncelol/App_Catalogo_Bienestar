@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { ZoomIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
@@ -9,7 +10,7 @@ import { INFO_MOTOR, precargarModelo } from '@/components/abasto/motor-ia';
 import { Icono, s as ui } from '@/components/abasto/ui';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import type { Articulo } from '@/data/abasto';
-import { useAbasto } from '@/data/abasto-context';
+import { useAbasto, type FiltrosArticulos } from '@/data/abasto-context';
 import { useTheme } from '@/hooks/use-theme';
 
 const Contexto = createContext<() => void>(() => undefined);
@@ -23,7 +24,7 @@ export const useAbrirAsistente = () => useContext(Contexto);
  */
 export function AsistenteProvider({ children }: { children: ReactNode }) {
   const t = useTheme();
-  const { setFiltrosArticulos, setProductoAbierto } = useAbasto();
+  const { setFiltrosArticulos, setProductoAbierto, setRegion } = useAbasto();
   const [abierto, setAbierto] = useState(false);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [sel, setSel] = useState<Articulo | null>(null);
@@ -35,11 +36,17 @@ export function AsistenteProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Desde una tarjeta del chat: se cierra la hoja y se abre el catálogo del proveedor o la ficha del producto
-  const verProveedor = (cve: string) => {
+  const verArticulos = (f: FiltrosArticulos) => {
     setSel(null);
     setAbierto(false);
-    setFiltrosArticulos({ proveedor: cve });
+    setFiltrosArticulos(f);
     router.navigate('/articulos');
+  };
+  const verProveedor = (cve: string) => verArticulos({ proveedor: cve });
+  const verRegion = (sigla: string) => {
+    setAbierto(false);
+    setRegion(sigla);
+    router.navigate('/regiones');
   };
   const verProducto = (prod: string) => {
     setAbierto(false);
@@ -83,7 +90,9 @@ export function AsistenteProvider({ children }: { children: ReactNode }) {
           </View>
           {abierto ? (
             <ChatAsistente key={conversacion} mensajes={mensajes} setMensajes={setMensajes} onVerArticulo={setSel}
-              onVerProveedor={verProveedor} onVerProducto={verProducto} />
+              onVerProveedor={verProveedor} onVerProducto={verProducto}
+              onVerHoja={(h) => verArticulos({ negociacion: h })} onVerInventario={(inv) => verArticulos({ inventario: inv })}
+              onVerRegion={verRegion} />
           ) : null}
         </View>
         <ArticuloDetalle
@@ -101,10 +110,13 @@ export function BotonAsistente() {
   const t = useTheme();
   const abrir = useAbrirAsistente();
   return (
-    <Pressable onPress={abrir} accessibilityRole="button" accessibilityLabel="Abrir el asistente"
-      style={({ pressed }) => [styles.flotante, { backgroundColor: t.accent }, pressed && ui.presionado]}>
-      <Icono nombre="asistente" color="#ffffff" tam={24} />
-    </Pressable>
+    // Aparece con un pequeño rebote al abrir la app
+    <Animated.View entering={ZoomIn.delay(600).springify().damping(12)} style={styles.flotante}>
+      <Pressable onPress={abrir} accessibilityRole="button" accessibilityLabel="Abrir el asistente"
+        style={({ pressed }) => [styles.botonFlotante, { backgroundColor: t.accent }, pressed && ui.presionado]}>
+        <Icono nombre="asistente" color="#ffffff" tam={24} />
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -119,9 +131,9 @@ const styles = StyleSheet.create({
   sub: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 1 },
   boton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' },
   franja: { height: 3, backgroundColor: '#CFB579' },
-  flotante: {
-    position: 'absolute', right: Spacing.four + Spacing.two, bottom: BottomTabInset + Spacing.three, width: 56, height: 56, borderRadius: 28,
-    alignItems: 'center', justifyContent: 'center',
+  flotante: { position: 'absolute', right: Spacing.four + Spacing.two, bottom: BottomTabInset + Spacing.three },
+  botonFlotante: {
+    width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6,
   },
 });
