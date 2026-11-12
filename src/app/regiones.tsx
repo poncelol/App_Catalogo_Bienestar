@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
-import { Keyboard, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type TextInput } from 'react-native';
+import { Keyboard, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type TextInputInstance } from 'react-native';
 
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
 import { BarraBusqueda, EncabezadoBusqueda, Grupo, Renglon, useRecientes } from '@/components/abasto/busqueda';
@@ -24,7 +24,7 @@ export default function Regiones() {
   const [sel, setSel] = useState<Articulo | null>(null);
   // Búsqueda: mientras se escribe se muestra el panel de resultados; «textoArt» filtra los artículos de la región
   const { recientes, agregar, borrar } = useRecientes('busquedas-regiones:v1');
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputInstance>(null);
   const [enfocado, setEnfocado] = useState(false);
   const [borrador, setBorrador] = useState('');
   const [textoArt, setTextoArt] = useState('');

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ScrollViewInstance,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -218,7 +218,7 @@ function Conversacion({ mensajes, sugerencias, onEnviar, acciones }: {
   mensajes: Mensaje[]; sugerencias: string[]; onEnviar: (q: string) => void; acciones: Acciones;
 }) {
   const t = useTheme();
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   // Mensajes que ya estaban al abrir el asistente
   const [previos] = useState(() => new Set(mensajes.map((m) => m.id)));
   // Solo se baja sola si ya estaba abajo: si el usuario subió a leer, no se le mueve mientras el modelo escribe

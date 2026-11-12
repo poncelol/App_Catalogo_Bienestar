@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Keyboard, Pressable, RefreshControl, StyleSheet, Text, View, type TextInput } from 'react-native';
+import { FlatList, Keyboard, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from 'react-native';
 
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
 import { BarraBusqueda, EncabezadoBusqueda, PanelSugerencias, useRecientes } from '@/components/abasto/busqueda';
@@ -19,7 +19,7 @@ export default function Articulos() {
   const { datos, cargando, actualizar, filtrosArticulos: f, setFiltrosArticulos: setFiltros, pedidoBusqueda } = useAbasto();
   const { columnas, ancho, espacio } = useRejilla();
   const { recientes, agregar, borrar } = useRecientes();
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputInstance>(null);
   const [sel, setSel] = useState<Articulo | null>(null);
   const [vista, setVista] = useState<'cuadricula' | 'lista'>('cuadricula');
   const [hoja, setHoja] = useState(0);   // > 0: hoja de filtros abierta (la clave la reinicia en cada apertura)

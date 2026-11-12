@@ -6,8 +6,8 @@ import {
   TabTriggerSlotProps,
   TabListProps,
 } from 'expo-router/ui';
-import { createContext, useContext } from 'react';
-import { Pressable, View, StyleSheet, Text, useWindowDimensions } from 'react-native';
+import { createContext, useContext, type Ref } from 'react';
+import { Pressable, View, StyleSheet, Text, useWindowDimensions, type PressableInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icono, type ICONOS } from '@/components/abasto/ui';
@@ -50,14 +50,16 @@ export default function AppTabs() {
   );
 }
 
-export function TabButton({ children, isFocused, icono, ...props }: TabTriggerSlotProps & { icono: keyof typeof ICONOS }) {
+export function TabButton({ children, isFocused, icono, ref, ...props }: TabTriggerSlotProps & { icono: keyof typeof ICONOS }) {
+  // Expo Router aún tipa la referencia con el tipo antiguo de View; en React Native 0.88 es PressableInstance
+  const refBoton = ref as unknown as Ref<PressableInstance>;
   const t = useTheme();
   const compacta = useContext(Compacta);
   if (compacta) {
     // Como la barra de iPhone: la activa en guinda, las demás en gris, sin fondo detrás del ícono
     const color = isFocused ? t.accent : t.muted;
     return (
-      <Pressable {...props} style={({ pressed }) => [styles.tabCompacta, pressed && styles.pressed]}>
+      <Pressable {...props} ref={refBoton} style={({ pressed }) => [styles.tabCompacta, pressed && styles.pressed]}>
         <View style={styles.indicador}>
           <Icono nombre={icono} color={color} tam={24} />
         </View>
@@ -68,7 +70,7 @@ export function TabButton({ children, isFocused, icono, ...props }: TabTriggerSl
     );
   }
   return (
-    <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
+    <Pressable {...props} ref={refBoton} style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView
         type={isFocused ? 'backgroundSelected' : 'backgroundElement'}
         style={styles.tabButtonView}>

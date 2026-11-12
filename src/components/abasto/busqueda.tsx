@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState, type ReactNode, type Ref } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputInstance } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Foto, Resaltado } from '@/components/abasto/catalogo';
@@ -36,7 +36,7 @@ type PropsBarra = {
   /** Muestra «Cancelar» a la derecha mientras el buscador está activo. */
   activo?: boolean;
   onCancelar?: () => void;
-  inputRef?: Ref<TextInput>;
+  inputRef?: Ref<TextInputInstance>;
 };
 
 /** Caja de búsqueda con botón para borrar y «Cancelar», al estilo de iOS. */

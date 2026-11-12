@@ -21,11 +21,16 @@
       "package": "com.poncelolwork.BienestarApp"
     },
     "web": {
-      "output": "server",
+      "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "apiRoutes": true
+        }
+      ],
       [
         "expo-splash-screen",
         {

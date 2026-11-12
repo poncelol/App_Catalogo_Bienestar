@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entrada } from '@/components/abasto/animaciones';
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
@@ -109,9 +109,13 @@ export function AsistenteProvider({ children }: { children: ReactNode }) {
 export function BotonAsistente() {
   const t = useTheme();
   const abrir = useAbrirAsistente();
+  // En iPhone la barra de pestañas queda encima de la barra de inicio (la rayita de abajo): sin sumar ese espacio, el
+  // botón quedaba pegado a la barra
+  const { bottom } = useSafeAreaInsets();
+  const abajo = BottomTabInset + Spacing.three + (Platform.OS === 'ios' ? bottom + Spacing.two : 0);
   return (
     // Aparece con un pequeño rebote al abrir la app
-    <Entrada efecto="crecer" retraso={600} duracion={450} style={styles.flotante}>
+    <Entrada efecto="crecer" retraso={600} duracion={450} style={[styles.flotante, { bottom: abajo }]}>
       <Pressable onPress={abrir} accessibilityRole="button" accessibilityLabel="Abrir el asistente"
         style={({ pressed }) => [styles.botonFlotante, { backgroundColor: t.accent }, pressed && ui.presionado]}>
         <Icono nombre="asistente" color="#ffffff" tam={24} />
@@ -131,7 +135,7 @@ const styles = StyleSheet.create({
   sub: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 1 },
   boton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' },
   franja: { height: 3, backgroundColor: '#CFB579' },
-  flotante: { position: 'absolute', right: Spacing.four + Spacing.two, bottom: BottomTabInset + Spacing.three },
+  flotante: { position: 'absolute', right: Spacing.four + Spacing.two },
   botonFlotante: {
     width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6,
