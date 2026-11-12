@@ -2,11 +2,10 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, G } from 'react-native-svg';
 
-import { Aparecer, BarraAnimada, NumeroAnimado, Sonar, desplegar, girarDona } from '@/components/abasto/animaciones';
+import { Aparecer, BarraAnimada, Desplegar, Entrada, NumeroAnimado, Sonar } from '@/components/abasto/animaciones';
 import { agruparProductos } from '@/components/abasto/catalogo';
 import { MapaRegiones } from '@/components/abasto/mapa';
 import { SelectorTema } from '@/components/abasto/selector-tema';
@@ -415,7 +414,7 @@ function Desplegable({ texto, color, items, total, onPress }: {
         <Text style={[styles.enlace, { color: t.accent }]}>{abierto ? 'Ocultar' : 'Ver cuáles'}</Text>
       </Pressable>
       {abierto ? (
-        <Animated.View entering={desplegar} style={[styles.hojas, { borderColor: t.border }]}>
+        <Desplegar style={[styles.hojas, { borderColor: t.border }]}>
           <ScrollView nestedScrollEnabled>
             {items.map((it) => (
               <Pressable key={it.id ?? it.clave} disabled={!onPress} onPress={() => onPress?.(it.clave)}
@@ -429,7 +428,7 @@ function Desplegable({ texto, color, items, total, onPress }: {
             ))}
             {faltan > 0 ? <Text style={[styles.hoja, { color: t.muted }]}>y {entero(faltan)} más</Text> : null}
           </ScrollView>
-        </Animated.View>
+        </Desplegar>
       ) : null}
     </View>
   );
@@ -480,11 +479,11 @@ function HojasNegociacion({ grupos }: { grupos: GrupoHojas[] }) {
       </View>
       {elegido ? (
         // La clave hace que la lista vuelva a entrar al cambiar de recuadro
-        <Animated.View key={elegido.clave} entering={desplegar} style={[styles.hojas, { borderColor: t.border }]}>
+        <Desplegar key={elegido.clave} style={[styles.hojas, { borderColor: t.border }]}>
           <ScrollView nestedScrollEnabled>
             {elegido.lista.map((h) => <Text key={h} style={[styles.hoja, { color: t.text, borderBottomColor: t.border }]}>{h}</Text>)}
           </ScrollView>
-        </Animated.View>
+        </Desplegar>
       ) : null}
     </View>
   );
@@ -519,7 +518,7 @@ function SeccionResumen({ orden, icono, titulo, descripcion, resumen, detalle, a
       <View style={[styles.regla, { backgroundColor: t.border }]} />
       <View style={styles.seccionCuerpo}>
         {resumen}
-        {abierto && detalle ? <Animated.View entering={desplegar} style={{ marginTop: Spacing.three }}>{detalle}</Animated.View> : null}
+        {abierto && detalle ? <Desplegar style={{ marginTop: Spacing.three }}>{detalle}</Desplegar> : null}
       </View>
       {detalle || accion ? (
         <View style={[styles.seccionPie, { borderTopColor: t.border }]}>
@@ -562,7 +561,7 @@ function Dona({ items, colores, otro, centro, tam = 176 }: {
   return (
     <View style={[styles.dona, { width: tam, height: tam }]}>
       {/* Los sectores entran girando; el total del centro cuenta hasta su valor */}
-      <Animated.View entering={girarDona}>
+      <Entrada efecto="girar" duracion={800}>
       <Svg width={tam} height={tam}>
         {/* Empieza arriba (las 12) y avanza en el sentido del reloj */}
         <G rotation={-90} origin={`${tam / 2}, ${tam / 2}`}>
@@ -573,7 +572,7 @@ function Dona({ items, colores, otro, centro, tam = 176 }: {
           ))}
         </G>
       </Svg>
-      </Animated.View>
+      </Entrada>
       <View style={styles.donaCentro} pointerEvents="none">
         <NumeroAnimado valor={centro} style={[styles.donaValor, { color: t.text }]} />
         <Text style={[styles.donaEtq, { color: t.muted }]}>artículos</Text>

@@ -1,30 +1,54 @@
 /**
  * Animaciones de la app: discretas y cortas, para que se sienta fluida sin hacerla lenta. Todas respetan la opción
  * «Reducir movimiento» del teléfono (Reanimated la sigue sola; el contador la revisa con useReducedMotion).
+ *
+ * Las entradas se hacen solo con opacidad y movimiento (no con las animaciones de entrada de Reanimated): esas, una
+ * dentro de otra, sacan al elemento del flujo mientras corren y en la web la gráfica se encimaba o desaparecía.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Text, View, type StyleProp, type TextProps, type ViewStyle } from 'react-native';
 import Animated, {
-  Easing, FadeInDown, Keyframe, LinearTransition, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat,
-  withSequence, withTiming,
+  Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming,
 } from 'react-native-reanimated';
 
 import { entero } from '@/data/abasto';
 
-/** Cuando una sección se despliega, las de abajo se recorren suavemente en lugar de saltar. */
-export const recorrer = LinearTransition.duration(240).easing(Easing.out(Easing.quad));
+/** subir: aparece subiendo; izquierda/derecha: entra de ese lado; girar: gira y crece; crecer: crece con rebote. */
+type Efecto = 'subir' | 'izquierda' | 'derecha' | 'girar' | 'crecer';
 
-/** Entrada escalonada: cada bloque sube y aparece un poco después del anterior. */
+/** Entrada al montarse. `animar` en falso: aparece ya en su lugar (p. ej. mensajes que ya estaban). */
+export function Entrada({ efecto = 'subir', retraso = 0, duracion = 380, animar = true, style, children }: {
+  efecto?: Efecto; retraso?: number; duracion?: number; animar?: boolean; style?: StyleProp<ViewStyle>; children?: ReactNode;
+}) {
+  const p = useSharedValue(animar ? 0 : 1);
+  useEffect(() => {
+    if (!animar) return;
+    const curva = efecto === 'crecer' ? Easing.out(Easing.back(1.8)) : Easing.out(Easing.cubic);
+    p.set(withDelay(retraso, withTiming(1, { duration: duracion, easing: curva })));
+  }, [p, animar, retraso, duracion, efecto]);
+  const anim = useAnimatedStyle(() => {
+    const v = p.get();
+    const r = 1 - v;
+    switch (efecto) {
+      case 'izquierda': return { opacity: v, transform: [{ translateX: -20 * r }] };
+      case 'derecha': return { opacity: v, transform: [{ translateX: 20 * r }] };
+      case 'girar': return { opacity: v, transform: [{ rotate: `${-100 * r}deg` }, { scale: 1 - 0.15 * r }] };
+      case 'crecer': return { opacity: Math.min(v * 2, 1), transform: [{ scale: v }] };
+      default: return { opacity: v, transform: [{ translateY: 16 * r }] };
+    }
+  });
+  return <Animated.View style={[style, anim]}>{children}</Animated.View>;
+}
+
+/** Entrada escalonada de los bloques de una pantalla: cada uno un poco después del anterior. */
 export function Aparecer({ orden = 0, children, style }: { orden?: number; children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  return (
-    <Animated.View entering={FadeInDown.duration(420).delay(Math.min(orden, 8) * 70)} layout={recorrer} style={style}>
-      {children}
-    </Animated.View>
-  );
+  return <Entrada retraso={Math.min(orden, 8) * 70} duracion={420} style={style}>{children}</Entrada>;
 }
 
 /** Contenido que se despliega («Ver detalle», «Ver cuáles»). */
-export const desplegar = FadeInDown.duration(220);
+export function Desplegar({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  return <Entrada duracion={220} style={style}>{children}</Entrada>;
+}
 
 /** Número que cuenta desde el valor anterior (o desde 0) hasta el nuevo. */
 export function NumeroAnimado({ valor, formato = entero, ...props }: { valor: number; formato?: (n: number) => string } & TextProps) {
@@ -61,16 +85,7 @@ export function BarraAnimada({ fraccion, color, style, retraso = 0 }: {
   return <Animated.View style={[style, { width: `${fraccion * 100}%`, backgroundColor: color, transformOrigin: 'left' }, anim]} />;
 }
 
-/** La gráfica de pastel entra girando y creciendo. */
-export const girarDona = new Keyframe({
-  0: { opacity: 0, transform: [{ rotate: '-100deg' }, { scale: 0.85 }] },
-  100: { opacity: 1, transform: [{ rotate: '0deg' }, { scale: 1 }], easing: Easing.out(Easing.cubic) },
-}).duration(800);
-
-/**
- * Se mueve una vez de lado a lado (como campana que suena) cuando `activa`. Solo gira: no cambia su lugar, así que no
- * se encima con el texto de al lado.
- */
+/** Se mueve una vez de lado a lado (como campana que suena) cuando `activa`. */
 export function Sonar({ activa, children, style }: { activa: boolean; children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const giro = useSharedValue(0);
   useEffect(() => {

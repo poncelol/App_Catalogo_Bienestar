@@ -1,9 +1,9 @@
 import { router } from 'expo-router';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { ZoomIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Entrada } from '@/components/abasto/animaciones';
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
 import { ChatAsistente, type Mensaje } from '@/components/abasto/asistente-chat';
 import { INFO_MOTOR, precargarModelo } from '@/components/abasto/motor-ia';
@@ -111,12 +111,12 @@ export function BotonAsistente() {
   const abrir = useAbrirAsistente();
   return (
     // Aparece con un pequeño rebote al abrir la app
-    <Animated.View entering={ZoomIn.delay(600).springify().damping(12)} style={styles.flotante}>
+    <Entrada efecto="crecer" retraso={600} duracion={450} style={styles.flotante}>
       <Pressable onPress={abrir} accessibilityRole="button" accessibilityLabel="Abrir el asistente"
         style={({ pressed }) => [styles.botonFlotante, { backgroundColor: t.accent }, pressed && ui.presionado]}>
         <Icono nombre="asistente" color="#ffffff" tam={24} />
       </Pressable>
-    </Animated.View>
+    </Entrada>
   );
 }
 

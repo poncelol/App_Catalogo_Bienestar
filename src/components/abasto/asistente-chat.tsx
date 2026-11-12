@@ -2,10 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
-import Animated, { FadeInDown, FadeInLeft, FadeInRight, LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Escribiendo } from '@/components/abasto/animaciones';
+import { Entrada as Animar, Escribiendo } from '@/components/abasto/animaciones';
 import { FilaArticulo, Foto } from '@/components/abasto/catalogo';
 import { IlustracionProducto } from '@/components/abasto/ilustracion-producto';
 import { INFO_MOTOR, useMotor } from '@/components/abasto/motor-ia';
@@ -220,6 +219,8 @@ function Conversacion({ mensajes, sugerencias, onEnviar, acciones }: {
 }) {
   const t = useTheme();
   const scroll = useRef<ScrollView>(null);
+  // Mensajes que ya estaban al abrir el asistente
+  const [previos] = useState(() => new Set(mensajes.map((m) => m.id)));
   // Solo se baja sola si ya estaba abajo: si el usuario subió a leer, no se le mueve mientras el modelo escribe
   const abajo = useRef(true);
   useEffect(() => {
@@ -253,29 +254,29 @@ function Conversacion({ mensajes, sugerencias, onEnviar, acciones }: {
         </View>
       ) : (
         // Al volver a abrir el asistente, los mensajes que ya estaban no se animan otra vez; solo los nuevos
-        <LayoutAnimationConfig skipEntering>
-          {mensajes.map((m) => <Burbuja key={m.id} m={m} acciones={acciones} onReintentar={onEnviar} />)}
-        </LayoutAnimationConfig>
+        mensajes.map((m) => <Burbuja key={m.id} m={m} animar={!previos.has(m.id)} acciones={acciones} onReintentar={onEnviar} />)
       )}
     </ScrollView>
   );
 }
 
-function Burbuja({ m, acciones, onReintentar }: { m: Mensaje; acciones: Acciones; onReintentar: (q: string) => void }) {
+function Burbuja({ m, animar, acciones, onReintentar }: {
+  m: Mensaje; animar: boolean; acciones: Acciones; onReintentar: (q: string) => void;
+}) {
   const t = useTheme();
   if (m.rol === 'usuario') {
     return (
-      <Animated.View entering={FadeInRight.duration(220)} style={[styles.burbuja, styles.usuario, { backgroundColor: t.accent }]}>
+      <Animar efecto="derecha" duracion={220} animar={animar} style={[styles.burbuja, styles.usuario, { backgroundColor: t.accent }]}>
         <Text style={[styles.texto, { color: '#ffffff' }]} selectable>{m.texto}</Text>
-      </Animated.View>
+      </Animar>
     );
   }
   const extra = (m.articulos?.length ?? 0) - TARJETAS;
   // Las tarjetas entran una tras otra, después de la burbuja
   let turno = 0;
-  const entrada = () => FadeInDown.duration(260).delay(120 + Math.min(turno++, 8) * 60);
+  const retraso = () => 120 + Math.min(turno++, 8) * 60;
   return (
-    <Animated.View entering={FadeInLeft.duration(260)} style={styles.respuesta}>
+    <Animar efecto="izquierda" duracion={260} animar={animar} style={styles.respuesta}>
       {m.entendido ? (
         <View style={styles.entendido}>
           <Icono nombre="buscar" color={t.muted} tam={12} />
@@ -307,7 +308,7 @@ function Burbuja({ m, acciones, onReintentar }: { m: Mensaje; acciones: Acciones
       {m.articulos?.length ? (
         <View style={{ gap: Spacing.two }}>
           {m.articulos.slice(0, TARJETAS).map((a) => (
-            <Animated.View key={a.artId} entering={entrada()}><FilaArticulo a={a} onPress={acciones.onVerArticulo} /></Animated.View>
+            <Animar key={a.artId} animar={animar} retraso={retraso()} duracion={260}><FilaArticulo a={a} onPress={acciones.onVerArticulo} /></Animar>
           ))}
           {extra > 0 ? <Text style={[styles.mas, { color: t.muted }]}>y {entero(extra)} artículos más en el catálogo</Text> : null}
         </View>
@@ -321,11 +322,11 @@ function Burbuja({ m, acciones, onReintentar }: { m: Mensaje; acciones: Acciones
       ] as const).map(([tipo, grupos, ver]) => (grupos?.length ? (
         <View key={tipo} style={{ gap: Spacing.two }}>
           {grupos.map((g) => (
-            <Animated.View key={g.clave} entering={entrada()}><FilaGrupo g={g} tipo={tipo} onPress={() => ver(g.clave)} /></Animated.View>
+            <Animar key={g.clave} animar={animar} retraso={retraso()} duracion={260}><FilaGrupo g={g} tipo={tipo} onPress={() => ver(g.clave)} /></Animar>
           ))}
         </View>
       ) : null))}
-    </Animated.View>
+    </Animar>
   );
 }
 
