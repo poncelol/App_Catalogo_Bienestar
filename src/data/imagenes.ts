@@ -1,5 +1,6 @@
 /**
- * Fotos del catálogo, tomadas del Excel interno de imágenes (no del Excel del catálogo).
+ * Fotos de artículos y logotipos de proveedores. Los productos no llevan foto: su ilustración se genera sola a partir
+ * de su nombre (ilustracion-producto.tsx).
  *
  * Orden de prioridad:
  *  1. Las del servidor de Cloudflare (SERVIDOR; se cambian con admin_bienestar.py de BienestarBackend) o, si no hay, el Excel
@@ -20,7 +21,6 @@ const CLAVE_CACHE = 'imagenes-catalogo:v1';
 
 export type MapaImagenes = {
   proveedores: Record<string, string>;
-  productos: Record<string, string>;
   articulos: Record<string, string>;
 };
 
@@ -34,17 +34,12 @@ export function conImagenes(arts: Articulo[]): Articulo[] {
   });
 }
 
-/** Foto del producto: la del Excel de imágenes o, si no hay, la del primer artículo que tenga. */
-export function imagenProducto(prod: string, arts: Articulo[]): string | null {
-  return urlImagen(mapa.productos[prod]) ?? arts.find((a) => a.prod === prod && a.imagen)?.imagen ?? null;
-}
-
 /** Logotipo del proveedor (por CVE), o null. */
 export function imagenProveedor(cve: string): string | null {
   return urlImagen(mapa.proveedores[cve]);
 }
 
-/** Ancho en pixeles de las fotos en listas y tarjetas, y en la ficha de un artículo o producto. */
+/** Ancho en pixeles de las fotos en listas y tarjetas, y en la ficha de un artículo. */
 export const MINIATURA = 400;
 export const GRANDE = 800;
 
@@ -80,15 +75,11 @@ export function tamano(url: string, px: number): string {
 const precargadas = new Set<string>();
 
 /**
- * Descarga en segundo plano las miniaturas de los productos y los logotipos de los proveedores (unas 200 fotos
- * chicas), para que esas pestañas abran con las fotos listas. Las de artículos se cargan al verlas.
+ * Descarga en segundo plano los logotipos de los proveedores (unas 100 fotos chicas), para que esa pestaña abra con
+ * ellos listos. Las fotos de artículos se cargan al verlas.
  */
 export function precargar(arts: Articulo[]) {
-  const prods = new Set(arts.map((a) => a.prod));
-  const urls = [
-    ...[...prods].map((p) => imagenProducto(p, arts)),
-    ...[...new Set(arts.map((a) => a.cve))].map(imagenProveedor),
-  ]
+  const urls = [...new Set(arts.map((a) => a.cve))].map(imagenProveedor)
     .filter((u): u is string => !!u)
     .map((u) => tamano(u, MINIATURA))
     .filter((u) => !precargadas.has(u));
@@ -106,7 +97,7 @@ export function creditoImagen(url: string | null): string | null {
   return null;
 }
 
-/** Lee las hojas PROVEEDORES (CVE), PRODUCTOS (PROD.) y ARTICULOS (ART.) del Excel de imágenes. */
+/** Lee las hojas PROVEEDORES (CVE) y ARTICULOS (ART.) del Excel de imágenes. */
 function leerExcelImagenes(contenido: ArrayBuffer): MapaImagenes {
   const libro = XLSX.read(new Uint8Array(contenido), { type: 'array' });
   const hoja = (nombre: string, llave: string) => {
@@ -120,7 +111,7 @@ function leerExcelImagenes(contenido: ArrayBuffer): MapaImagenes {
     }
     return salida;
   };
-  return { proveedores: hoja('PROVEEDORES', 'CVE'), productos: hoja('PRODUCTOS', 'PROD.'), articulos: hoja('ARTICULOS', 'ART.') };
+  return { proveedores: hoja('PROVEEDORES', 'CVE'), articulos: hoja('ARTICULOS', 'ART.') };
 }
 
 /** Usa la copia del Excel de imágenes guardada en el teléfono, si existe. */

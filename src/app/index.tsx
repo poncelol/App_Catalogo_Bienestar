@@ -322,7 +322,7 @@ function EncabezadoInstitucional() {
         </View>
         {/* De la dirección al área, uno debajo del otro */}
         <Text style={styles.titulo}>Dirección Comercial</Text>
-        <Text style={styles.dependencia}>Gerencia de Abasto de Grano y Abarrotes</Text>
+        <Text style={styles.dependencia}>Gerencia de Abasto de Granos y Abarrotes</Text>
         <Text style={styles.area}>Subgerencia de Abarrotes</Text>
         <Text style={styles.fecha}>
           Información al {fechaLarga(hoyISO())}{datos ? ` · ${datos.origen === 'red' ? 'OneDrive' : 'copia guardada'} · ${hora(datos.descargado)}` : ''}

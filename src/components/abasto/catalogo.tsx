@@ -7,7 +7,7 @@ import { Icono, s as ui, type ICONOS } from '@/components/abasto/ui';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { diasVigencia, dinero, entero, type Articulo } from '@/data/abasto';
 import { palabras, resaltar } from '@/data/busqueda';
-import { GRANDE, imagenProducto, MINIATURA, tamano } from '@/data/imagenes';
+import { GRANDE, MINIATURA, tamano } from '@/data/imagenes';
 import { useTheme } from '@/hooks/use-theme';
 
 const MARGEN = Spacing.three;
@@ -216,7 +216,6 @@ export type ResumenProducto = {
   marcas: number;
   min: number | null;
   max: number | null;
-  imagen: string | null;
   inventarios: Set<string>;
 };
 
@@ -235,7 +234,6 @@ export function agruparProductos(arts: Articulo[]): ResumenProducto[] {
         marcas: new Set(g.map((a) => a.marca)).size,
         min: costos.length ? Math.min(...costos) : null,
         max: costos.length ? Math.max(...costos) : null,
-        imagen: imagenProducto(prod, g),
         inventarios: new Set(g.map((a) => a.inventario)),
       };
     })

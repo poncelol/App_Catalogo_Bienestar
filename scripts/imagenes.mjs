@@ -1,7 +1,7 @@
 /**
  * Excel interno de imágenes: datos/imagenes.xlsx
  *
- *   npm run imagenes           Crea o actualiza el Excel con los proveedores, productos y artículos del catálogo
+ *   npm run imagenes           Crea o actualiza el Excel con los proveedores y artículos del catálogo
  *                              (descargado de SharePoint) y genera src/data/imagenes.json, que lee la app.
  *   npm run imagenes:buscar    Además busca la foto de cada artículo sin imagen por su código de barras en
  *                              Open Food Facts / Open Products Facts (bases públicas, licencia abierta).
@@ -42,7 +42,6 @@ const SUGERIR = args.includes('--sugerencias');
 const REINTENTAR = args.includes('--reintentar');
 const EXCEL_CATALOGO = args.includes('--excel') ? args[args.indexOf('--excel') + 1] : null;
 
-const AUTO_PRODUCTO = 'Artículo ART. ';   // FUENTE de las fotos de producto que se toman de un artículo (se recalculan)
 const OFF = 'Open Food Facts';
 
 // ── Catálogo ──────────────────────────────────────────────────────────
@@ -99,14 +98,13 @@ function leerCatalogo(buf) {
 // ── Excel de imágenes ─────────────────────────────────────────────────
 const HOJAS = {
   PROVEEDORES: { llave: 'CVE', columnas: ['CVE', 'PROVEEDOR', 'ARTÍCULOS', 'IMAGEN', 'SITIO WEB', 'FUENTE'], anchos: [8, 45, 10, 60, 30, 22] },
-  PRODUCTOS: { llave: 'PROD.', columnas: ['PROD.', 'PRODUCTO', 'ARTÍCULOS', 'IMAGEN', 'FUENTE'], anchos: [8, 40, 10, 60, 22] },
   ARTICULOS: { llave: 'ART.', columnas: ['ART.', 'ARTICULO', 'MARCA', 'PRODUCTO', 'PROVEEDOR', 'CODIGO BARRAS', 'IMAGEN', 'FUENTE',
     'APROBAR', 'SUGERENCIA', 'SUGERENCIA DE', 'COINCIDENCIA'], anchos: [10, 45, 18, 30, 35, 16, 60, 22, 10, 60, 50, 13] },
 };
 
 /** Renglones ya existentes del Excel de imágenes, por hoja y llave. */
 function leerExistente() {
-  const salida = { PROVEEDORES: new Map(), PRODUCTOS: new Map(), ARTICULOS: new Map() };
+  const salida = { PROVEEDORES: new Map(), ARTICULOS: new Map() };
   if (!existsSync(EXCEL)) return salida;
   const libro = XLSX.read(readFileSync(EXCEL), { type: 'buffer' });
   for (const [hoja, { llave }] of Object.entries(HOJAS)) {
@@ -254,7 +252,6 @@ const agrupar = (llave) => {
   return m;
 };
 const porArt = agrupar('art');
-const porProd = agrupar('prod');
 const porCve = agrupar('cve');
 const nArt = (g) => new Set(g.map((a) => a.art)).size;
 
@@ -310,23 +307,8 @@ const articulos = [...porArt.values()].map((g) => {
     'SUGERENCIA DE': pendiente ? [sug.fuente, sug.nombre].filter(Boolean).join(': ') : '',
     COINCIDENCIA: pendiente && sug.puntos !== null ? `${Math.round(sug.puntos * 100)}%` : '' };
 }).sort((x, y) => x.PRODUCTO.localeCompare(y.PRODUCTO) || x.ARTICULO.localeCompare(y.ARTICULO));
-const fotoArt = new Map(articulos.filter((a) => a.IMAGEN).map((a) => [a['ART.'], a]));
 
-// Productos: lo escrito a mano manda; si no, la foto de su artículo con más negociaciones (prefiere las manuales)
-const productos = [...porProd].map(([prod, g]) => {
-  const p = previo.PRODUCTOS.get(prod) ?? {};
-  let imagen = texto(p.IMAGEN);
-  let fuente = texto(p.FUENTE);
-  if (!imagen || fuente.startsWith(AUTO_PRODUCTO)) {
-    const veces = new Map();
-    for (const a of g) if (fotoArt.has(a.art)) veces.set(a.art, (veces.get(a.art) ?? 0) + 1);
-    const elegido = [...veces].sort((x, y) =>
-      Number(fotoArt.get(y[0]).FUENTE !== OFF) - Number(fotoArt.get(x[0]).FUENTE !== OFF) || y[1] - x[1])[0]?.[0];
-    imagen = elegido ? fotoArt.get(elegido).IMAGEN : '';
-    fuente = elegido ? AUTO_PRODUCTO + elegido : '';
-  } else if (!fuente) fuente = 'Manual';
-  return { 'PROD.': prod, PRODUCTO: g[0].producto, 'ARTÍCULOS': nArt(g), IMAGEN: imagen, FUENTE: fuente };
-}).sort((x, y) => x.PRODUCTO.localeCompare(y.PRODUCTO));
+// Los productos no llevan foto: la app genera su ilustración a partir del nombre (ilustracion-producto.tsx)
 
 // Proveedores: logotipo escrito a mano, o el ícono de su sitio web si se capturó SITIO WEB
 const proveedores = [...porCve].map(([cve, g]) => {
@@ -353,12 +335,12 @@ const libro = XLSX.utils.book_new();
 const instrucciones = [
   ['IMÁGENES DEL CATÁLOGO · Programa de Abasto Rural 2026'],
   [''],
-  ['Cada hoja tiene una fila por proveedor (CVE), producto (PROD.) o artículo (ART.). Escriba en la columna IMAGEN'],
+  ['Cada hoja tiene una fila por proveedor (CVE) o artículo (ART.). Escriba en la columna IMAGEN'],
   ['el vínculo de la foto: un vínculo para compartir de OneDrive/SharePoint ("Cualquier persona con el vínculo")'],
   ['o una URL de imagen. Lo que se escriba a mano nunca se reemplaza.'],
   [''],
   ['PROVEEDORES: capture IMAGEN (logotipo) o SITIO WEB; con el sitio web se usa el ícono de la empresa.'],
-  ['PRODUCTOS: si IMAGEN queda vacía se usa la foto de uno de sus artículos (FUENTE "Artículo ART. …").'],
+  ['PRODUCTOS: ya no llevan foto; la app genera su ilustración a partir del nombre del producto.'],
   ['ARTICULOS: las fotos con FUENTE "Open Food Facts" o "Chedraui" se encontraron por código de barras.'],
   [''],
   ['SUGERENCIAS: para artículos sin foto se buscó por nombre. Como no hay código de barras que lo confirme, la foto'],
@@ -372,7 +354,7 @@ const instrucciones = [
 const wsI = XLSX.utils.aoa_to_sheet(instrucciones);
 wsI['!cols'] = [{ wch: 110 }];
 XLSX.utils.book_append_sheet(libro, wsI, 'INSTRUCCIONES');
-for (const [hoja, filas] of [['PROVEEDORES', proveedores], ['PRODUCTOS', productos], ['ARTICULOS', articulos]]) {
+for (const [hoja, filas] of [['PROVEEDORES', proveedores], ['ARTICULOS', articulos]]) {
   const { columnas, anchos } = HOJAS[hoja];
   const ws = XLSX.utils.json_to_sheet(conservar(hoja, filas), { header: columnas });
   ws['!cols'] = anchos.map((wch) => ({ wch }));
@@ -398,7 +380,6 @@ const mapa = (filas, llave) => Object.fromEntries(filas.filter((f) => f.IMAGEN).
 writeFileSync(SALIDA, JSON.stringify({
   generado: new Date().toISOString(),
   proveedores: mapa(proveedores, 'CVE'),
-  productos: mapa(productos, 'PROD.'),
   articulos: mapa(articulos, 'ART.'),
 }) + '\n');
 
@@ -427,7 +408,6 @@ ${porRevisar.map((a) => `<div class="t"><img loading="lazy" src="${esc(a.SUGEREN
 const conFoto = (f) => f.filter((x) => x.IMAGEN).length;
 console.log(`\nListo: ${EXCEL}`);
 console.log(`  Proveedores: ${conFoto(proveedores)} de ${proveedores.length} con imagen`);
-console.log(`  Productos:   ${conFoto(productos)} de ${productos.length} con imagen`);
 console.log(`  Artículos:   ${conFoto(articulos)} de ${articulos.length} con imagen` +
   ` (${articulos.filter((a) => a.FUENTE === OFF).length} de ${OFF}, ${articulos.filter((a) => a.FUENTE === CHEDRAUI).length} de ${CHEDRAUI})`);
 console.log(`  Sugerencias: ${porRevisar.length} por revisar (columna APROBAR) · ${REVISION}`);

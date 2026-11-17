@@ -51,13 +51,26 @@ const REGLAS: [RegExp, Estilo][] = [
   [/lamina/, { icono: 'pLamina', tono: 'pino' }],
   [/herramienta|campo/, { icono: 'pCampo', tono: 'verde' }],
   [/pecuario/, { icono: 'pAnimal', tono: 'oro' }],
+  [/franela|jerga|calzado|betun|grasa para/, { icono: 'pLimpieza', tono: 'vino' }],
+  [/navaja|rastrillo|afeitar/, { icono: 'pAseo', tono: 'pino' }],
+  [/\bpilas?\b|bateria/, { icono: 'pFoco', tono: 'oro' }],
 ];
 
-const OTRO: Estilo = { icono: 'producto', tono: 'vino' };
+/**
+ * Producto que no coincide con ninguna regla (p. ej. uno nuevo en el catálogo): ícono genérico con un tono que sale
+ * de su nombre, para que cada producto tenga siempre el mismo color y no todos se vean iguales.
+ */
+function estiloGenerico(n: string): Estilo {
+  const tonos = Object.keys(TONOS) as (keyof typeof TONOS)[];
+  let h = 0;
+  for (const c of n) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return { icono: 'producto', tono: tonos[h % tonos.length] };
+}
 
+/** Ícono y tono del producto, generados a partir de su nombre: no dependen de ninguna foto ni del Excel. */
 export function estiloProducto(nombre: string): Estilo {
   const n = sinAcentos(nombre);
-  return REGLAS.find(([re]) => re.test(n))?.[1] ?? OTRO;
+  return REGLAS.find(([re]) => re.test(n))?.[1] ?? estiloGenerico(n);
 }
 
 /**
