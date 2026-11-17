@@ -1,7 +1,7 @@
 /**
- * Novedades del catálogo: cada vez que se descarga el Excel se compara con la copia anterior guardada en el
- * teléfono. Si algo cambió (artículos nuevos o dados de baja, precios, hojas de negociación) se guarda el
- * resumen; se sigue mostrando hasta que el Excel vuelva a cambiar.
+ * Novedades del catálogo: cuando llega una versión nueva del Excel se compara con la versión inmediata anterior
+ * (la que guarda el servidor; ver calcularNovedades en abasto.ts). Si algo cambió (artículos nuevos o dados de baja,
+ * precios, hojas de negociación) se guarda el resumen; se sigue mostrando hasta que el Excel vuelva a cambiar.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -75,10 +75,14 @@ export function comparar(antes: Articulo[], ahora: Articulo[], fechaAnterior: st
   };
 }
 
-/** Compara la descarga nueva con la anterior y, si hubo cambios, los guarda. */
-export async function registrarCambios(antes: Articulo[], ahora: Articulo[], fechaAnterior: string) {
-  const n = comparar(antes, ahora, fechaAnterior);
+/**
+ * Compara una versión del catálogo con la anterior y guarda lo que cambió. `detectado` es cuándo apareció la versión
+ * nueva. Si no cambió nada de lo que se sigue, se borran las novedades guardadas: eran de una versión más vieja.
+ */
+export async function registrarCambios(antes: Articulo[], ahora: Articulo[], fechaAnterior: string, detectado?: string) {
+  const n = comparar(antes, ahora, fechaAnterior, detectado);
   if (n) await AsyncStorage.setItem(CLAVE, JSON.stringify(n)).catch(() => undefined);
+  else await AsyncStorage.removeItem(CLAVE).catch(() => undefined);
 }
 
 export async function leerNovedades(): Promise<Novedades | null> {

@@ -9,7 +9,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as XLSX from 'xlsx';
 
-import { catalogoServidor, descargarExcel, pedirServidor } from '@/data/descarga';
+import { catalogoAnteriorServidor, catalogoServidor, descargarExcel, pedirServidor, type CatalogoServidor } from '@/data/descarga';
 import { registrarCambios } from '@/data/novedades';
 import { SERVIDOR, urlDescarga, VINCULOS } from '@/data/vinculos';
 
@@ -300,23 +300,41 @@ export function urlImagen(v: unknown): string | null {
 export async function descargar(): Promise<Datos> {
   const anterior = await leerCopia();
   let contenido: ArrayBuffer;
-  let listo: (() => Promise<void>) | null = null;
+  let servidor: CatalogoServidor | null = null;
   try {
     if (!SERVIDOR) throw new Error('Sin servidor');
     const r = await catalogoServidor(!!anterior?.articulos.length);
     if (!r && anterior) return { ...anterior, origen: 'red' };   // no cambió
+    servidor = r!;
     contenido = r!.contenido;
-    listo = r!.listo;
   } catch (e) {
     if (SERVIDOR && !VINCULOS.catalogo) throw e;
     contenido = await descargarExcel('catalogo');
   }
   const datos: Datos = { articulos: leerExcel(contenido), descargado: new Date().toISOString(), origen: 'red' };
-  // Antes de reemplazar la copia guardada, se compara con ella para registrar las novedades
-  if (anterior?.articulos.length) await registrarCambios(anterior.articulos, datos.articulos, anterior.descargado);
+  await calcularNovedades(anterior, datos, servidor);
   await AsyncStorage.setItem(CLAVE_CACHE, JSON.stringify(datos)).catch(() => undefined);
-  await listo?.();
+  await servidor?.listo();
   return datos;
+}
+
+/**
+ * Novedades = lo que cambió en la ÚLTIMA versión del Excel respecto a la inmediata anterior (p. ej. la del 17 contra
+ * la del 16), no contra lo que tenía guardado el teléfono: así no se juntan los cambios de varios días si la app no se
+ * abrió, y un teléfono recién instalado también las ve. Si la copia del teléfono ya es esa versión anterior se compara
+ * con ella; si no, se descarga la anterior del servidor. Sin servidor (o si aún no tiene versión anterior), se
+ * compara con la copia del teléfono, como antes.
+ */
+async function calcularNovedades(copia: Datos | null, datos: Datos, s: CatalogoServidor | null) {
+  if (s?.anterior) {
+    let base = s.copiaEsAnterior && copia?.articulos.length ? copia.articulos : null;
+    if (!base) base = await catalogoAnteriorServidor().then(leerExcel).catch(() => null);
+    if (base) {
+      await registrarCambios(base, datos.articulos, s.anteriorFecha ?? copia?.descargado ?? datos.descargado, s.actualizado ?? undefined);
+      return;
+    }
+  }
+  if (copia?.articulos.length) await registrarCambios(copia.articulos, datos.articulos, copia.descargado);
 }
 
 export async function leerCopia(): Promise<Datos | null> {

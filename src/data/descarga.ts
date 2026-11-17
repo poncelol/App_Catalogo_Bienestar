@@ -56,14 +56,42 @@ export async function pedirServidor<T>(ruta: string, tengoCopia = false): Promis
   return { datos: (await respuesta.r.json()) as T, listo: respuesta.guardarVersion };
 }
 
+/** Catálogo descargado del servidor y de qué versión es. */
+export type CatalogoServidor = {
+  contenido: ArrayBuffer;
+  /** Cuándo apareció esta versión en el servidor (ISO). */
+  actualizado: string | null;
+  /** Huella (ETag) de la versión inmediata anterior, y cuándo apareció; null si el servidor aún no tiene anterior. */
+  anterior: string | null;
+  anteriorFecha: string | null;
+  /** La copia que ya tiene el teléfono es justo la versión anterior (se puede comparar sin descargarla). */
+  copiaEsAnterior: boolean;
+  listo: () => Promise<void>;
+};
+
 /**
  * Catálogo del servidor. Con `tengoCopia`, null si no cambió desde la última descarga.
  * `listo()` se llama después de guardar la copia.
  */
-export async function catalogoServidor(tengoCopia: boolean): Promise<{ contenido: ArrayBuffer; listo: () => Promise<void> } | null> {
+export async function catalogoServidor(tengoCopia: boolean): Promise<CatalogoServidor | null> {
+  const versionCopia = tengoCopia ? (await leerVersiones())['/api/catalogo'] : undefined;
   const respuesta = await pedir('/api/catalogo', tengoCopia);
   if (!respuesta) return null;
-  return { contenido: await revisarExcel(respuesta.r), listo: respuesta.guardarVersion };
+  const h = respuesta.r.headers;
+  const anterior = h.get('X-Anterior') || null;
+  return {
+    contenido: await revisarExcel(respuesta.r),
+    actualizado: h.get('X-Actualizado') || null,
+    anterior,
+    anteriorFecha: h.get('X-Anterior-Fecha') || null,
+    copiaEsAnterior: !!anterior && anterior === versionCopia,
+    listo: respuesta.guardarVersion,
+  };
+}
+
+/** Versión inmediata anterior del catálogo (la que había antes del último cambio), para calcular las novedades. */
+export async function catalogoAnteriorServidor(): Promise<ArrayBuffer> {
+  return revisarExcel(await fetch(`${SERVIDOR}/api/catalogo/anterior`, { headers: { 'Cache-Control': 'no-cache' } }));
 }
 
 /**
