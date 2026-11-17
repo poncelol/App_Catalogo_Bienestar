@@ -6,17 +6,19 @@
  * que los descarga y se los entrega. Este archivo no usa nada de React Native para que también lo use ese servidor.
  */
 
-/** Catálogo (hoja VIGENTES). Debe estar compartido como "Cualquier persona con el vínculo puede ver". */
-export const LINK_EXCEL =
-  'https://sdldiconsa1-my.sharepoint.com/:x:/g/personal/jgil_alimentacionbienestar_gob_mx/IQAMMYIoAdV3R64jYKkkxY-dAa80op6GuFgIqRefBMflTcw?e=DJUBs9';
-
-/**
- * Excel interno de imágenes (hojas PROVEEDORES, PRODUCTOS y ARTICULOS con su columna IMAGEN), en OneDrive.
- * Es el que manda: la app lo descarga al abrirse y `npm run imagenes` parte de él. Vacío: se usan las fotos que
- * trae la app.
+/*
+ * Los vínculos de los Excel NO van en el código (se sube a git y viaja dentro de la app):
+ *   · El servidor tiene el del catálogo como secreto (LINK_CATALOGO en Cloudflare).
+ *   · Los scripts de esta computadora (npm run imagenes, admin_bienestar.py) los leen de datos/config.json
+ *     ({ "linkCatalogo": "…", "linkImagenes": "…" }), que git ignora.
+ * Vacíos, la app toma todo del SERVIDOR. Solo para pruebas sin servidor se pueden poner aquí, sin subirlos a git.
  */
-export const LINK_IMAGENES =
-  'https://sdldiconsa1-my.sharepoint.com/:x:/g/personal/emponce_alimentacionbienestar_gob_mx/IQBR3sFMsgrnQLIP0OX6Uu0BAT0miz7AJ7BSBkPOmJo15sE?e=uSyb3x';
+
+/** Catálogo (hoja VIGENTES), compartido como "Cualquier persona con el vínculo puede ver". */
+export const LINK_EXCEL = '';
+
+/** Excel interno de imágenes (hojas PROVEEDORES, PRODUCTOS y ARTICULOS con su columna IMAGEN), en OneDrive. */
+export const LINK_IMAGENES = '';
 
 /**
  * Servidor de la app en Cloudflare (repositorio aparte: App Movil/BienestarBackend), p. ej. 'https://abasto-bienestar.<cuenta>.workers.dev'.
