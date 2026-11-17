@@ -1,16 +1,36 @@
 import { Platform } from 'react-native';
 
-import { urlDescarga, VINCULOS, type Archivo } from '@/data/vinculos';
+import { SERVIDOR, urlDescarga, VINCULOS, type Archivo } from '@/data/vinculos';
 
 const PISTAS: Record<number, string> = { 401: 'sin autorización', 403: 'acceso denegado', 404: 'no se encontró el archivo' };
 
+/** JSON del servidor de Cloudflare (SERVIDOR), p. ej. '/api/imagenes'. */
+export async function pedirServidor<T>(ruta: string): Promise<T> {
+  const r = await fetch(SERVIDOR + ruta, { headers: { 'Cache-Control': 'no-cache' } });
+  if (!r.ok) throw new Error(`El servidor respondió HTTP ${r.status}`);
+  return (await r.json()) as T;
+}
+
 /**
- * Descarga un Excel de OneDrive y comprueba que de verdad sea un Excel.
- * En el teléfono va directo a SharePoint; en el navegador lo pide al servidor de la app (src/app/api/excel+api.ts),
- * porque SharePoint no deja que otra página lea sus archivos.
+ * Descarga un Excel y comprueba que de verdad sea un Excel.
+ * El catálogo se pide al servidor de Cloudflare (SERVIDOR); si no hay o falla, a OneDrive como antes: en el teléfono
+ * directo a SharePoint y en el navegador por el servidor web de la app (src/app/api/excel+api.ts), porque
+ * SharePoint no deja que otra página lea sus archivos.
  */
 export async function descargarExcel(archivo: Archivo): Promise<ArrayBuffer> {
-  const url = Platform.OS === 'web' ? `/api/excel?archivo=${archivo}` : urlDescarga(VINCULOS[archivo]);
+  if (archivo === 'catalogo' && SERVIDOR) {
+    try {
+      return await bajarExcel(`${SERVIDOR}/api/catalogo`);
+    } catch (e) {
+      // Respaldo: OneDrive, solo si la app todavía trae el vínculo (sin él, el vínculo queda oculto en el servidor)
+      if (!VINCULOS.catalogo) throw e;
+    }
+  }
+  if (!VINCULOS[archivo]) throw new Error('La app no tiene el vínculo de este Excel: configure SERVIDOR en vinculos.ts.');
+  return bajarExcel(Platform.OS === 'web' ? `/api/excel?archivo=${archivo}` : urlDescarga(VINCULOS[archivo]));
+}
+
+async function bajarExcel(url: string): Promise<ArrayBuffer> {
   const r = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
   if (!r.ok) {
     // El servidor de la app explica el error en JSON; SharePoint solo da el código

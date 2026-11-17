@@ -2,7 +2,8 @@
  * Fotos del catálogo, tomadas del Excel interno de imágenes (no del Excel del catálogo).
  *
  * Orden de prioridad:
- *  1. El Excel de imágenes publicado en OneDrive (LINK_IMAGENES): se descarga cada vez que se abre la app.
+ *  1. Las del servidor de Cloudflare (SERVIDOR; se cambian con admin_bienestar.py de BienestarBackend) o, si no hay, el Excel
+ *     de imágenes publicado en OneDrive (LINK_IMAGENES): se descargan cada vez que se abre la app.
  *  2. La última copia de ese Excel guardada en el teléfono.
  *  3. imagenes.json, que va dentro de la app (lo genera `npm run imagenes`; no se edita a mano).
  */
@@ -11,9 +12,9 @@ import { Image } from 'expo-image';
 import * as XLSX from 'xlsx';
 
 import { urlImagen, type Articulo } from '@/data/abasto';
-import { descargarExcel } from '@/data/descarga';
+import { descargarExcel, pedirServidor } from '@/data/descarga';
 import IMAGENES from '@/data/imagenes.json';
-import { LINK_IMAGENES } from '@/data/vinculos';
+import { LINK_IMAGENES, SERVIDOR } from '@/data/vinculos';
 
 const CLAVE_CACHE = 'imagenes-catalogo:v1';
 
@@ -134,10 +135,18 @@ export async function cargarImagenesGuardadas(): Promise<boolean> {
   }
 }
 
-/** Descarga el Excel de imágenes de OneDrive y lo guarda. Devuelve false si no hay vínculo configurado. */
+/**
+ * Descarga las imágenes del servidor (o, si no hay o falla, el Excel de imágenes de OneDrive) y las guarda.
+ * Devuelve false si no hay de dónde.
+ */
 export async function descargarImagenes(): Promise<boolean> {
-  if (!LINK_IMAGENES) return false;
-  mapa = leerExcelImagenes(await descargarExcel('imagenes'));
+  let nuevo: MapaImagenes | null = null;
+  if (SERVIDOR) nuevo = await pedirServidor<MapaImagenes>('/api/imagenes').catch(() => null);
+  if (!nuevo) {
+    if (!LINK_IMAGENES) return false;
+    nuevo = leerExcelImagenes(await descargarExcel('imagenes'));
+  }
+  mapa = nuevo;
   await AsyncStorage.setItem(CLAVE_CACHE, JSON.stringify(mapa)).catch(() => undefined);
   return true;
 }

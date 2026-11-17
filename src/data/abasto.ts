@@ -9,9 +9,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as XLSX from 'xlsx';
 
-import { descargarExcel } from '@/data/descarga';
+import { descargarExcel, pedirServidor } from '@/data/descarga';
 import { registrarCambios } from '@/data/novedades';
-import { urlDescarga } from '@/data/vinculos';
+import { SERVIDOR, urlDescarga } from '@/data/vinculos';
 
 export { LINK_EXCEL, urlDescarga } from '@/data/vinculos';
 
@@ -75,6 +75,42 @@ export const SIGLAS = Object.keys(REGIONES);
 export const ESTADO_REGION: Record<string, string> = Object.fromEntries(
   SIGLAS.flatMap((sig) => REGIONES[sig].estados.map((e) => [e, sig])),
 );
+
+/** Región como la entrega el servidor (se edita con admin_bienestar.py del repositorio BienestarBackend, hoja REGIONES). */
+type RegionServidor = { sigla: string; nombre: string; clave: number; unidades: string[] };
+const CLAVE_REGIONES = 'regiones:v1';
+
+/**
+ * Aplica el nombre, la clave y las unidades del servidor a las regiones que ya conoce la app. Las siglas y los
+ * estados quedan fijos: el mapa y sus colores dependen de ellos, así que una sigla nueva se ignora.
+ */
+function aplicarRegiones(lista: RegionServidor[]) {
+  for (const r of lista) {
+    const actual = REGIONES[r.sigla];
+    if (!actual || !r.nombre || !Number.isFinite(r.clave) || !Array.isArray(r.unidades)) continue;
+    REGIONES[r.sigla] = { ...actual, nombre: r.nombre, clave: r.clave, unidades: r.unidades };
+  }
+}
+
+/** Usa las regiones del servidor guardadas en el teléfono, si hay. */
+export async function cargarRegionesGuardadas() {
+  try {
+    const texto = await AsyncStorage.getItem(CLAVE_REGIONES);
+    if (texto) aplicarRegiones(JSON.parse(texto) as RegionServidor[]);
+  } catch {
+    // Sin copia: quedan las de la app
+  }
+}
+
+/** Descarga las regiones del servidor y las guarda. Devuelve false si no hay servidor o no tiene regiones. */
+export async function descargarRegiones(): Promise<boolean> {
+  if (!SERVIDOR) return false;
+  const lista = await pedirServidor<RegionServidor[]>('/api/regiones');
+  if (!Array.isArray(lista) || !lista.length) return false;
+  aplicarRegiones(lista);
+  await AsyncStorage.setItem(CLAVE_REGIONES, JSON.stringify(lista)).catch(() => undefined);
+  return true;
+}
 
 // ──────────────────────────────────────────────────────────────
 // Lectura del Excel

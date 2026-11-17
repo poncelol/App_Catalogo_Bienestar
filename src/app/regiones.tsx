@@ -13,7 +13,8 @@ import { NAL, useAbasto } from '@/data/abasto-context';
 import { buscarRegiones, filtrarArticulos, palabras } from '@/data/busqueda';
 import { useTheme } from '@/hooks/use-theme';
 
-const N_UNIDADES = SIGLAS.reduce((n, s) => n + REGIONES[s].unidades.length, 0);
+// Función y no constante: las unidades pueden cambiar al llegar las regiones del servidor
+const nUnidades = () => SIGLAS.reduce((n, s) => n + REGIONES[s].unidades.length, 0);
 
 export default function Regiones() {
   const t = useTheme();
@@ -192,7 +193,7 @@ export default function Regiones() {
           refreshControl={<RefreshControl refreshing={cargando} onRefresh={actualizar} tintColor={t.accent} colors={[t.accent]} />}>
           <EstadoDatos />
           <Tarjeta titulo="Mapa de gerencias regionales"
-            sub={`${SIGLAS.length} gerencias y ${N_UNIDADES} unidades operativas. Toca un estado para elegir su región; tócalo otra vez para ver todas.`}>
+            sub={`${SIGLAS.length} gerencias y ${nUnidades()} unidades operativas. Toca un estado para elegir su región; tócalo otra vez para ver todas.`}>
             <MapaRegiones seleccion={region} onElegir={elegir} />
           </Tarjeta>
 
@@ -203,7 +204,7 @@ export default function Regiones() {
             ))}
             {/* Nacional al final, después de la última gerencia (Puebla) */}
             <CajaRegion sig={NAL} color="#111111" nombre="Nacional" detalle="todo el país"
-              unidades={`Llega a las ${SIGLAS.length} regiones y sus ${N_UNIDADES} unidades operativas`}
+              unidades={`Llega a las ${SIGLAS.length} regiones y sus ${nUnidades()} unidades operativas`}
               activa={region === NAL} onPress={() => elegir(NAL)} />
           </View>
 

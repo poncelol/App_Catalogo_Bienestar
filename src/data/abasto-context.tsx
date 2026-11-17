@@ -1,13 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
 
-import { descargar, leerCopia, type Datos } from '@/data/abasto';
+import { cargarRegionesGuardadas, descargar, descargarRegiones, leerCopia, type Datos } from '@/data/abasto';
 import type { FiltrosCatalogo } from '@/data/busqueda';
 import { cargarImagenesGuardadas, conImagenes, descargarImagenes, precargar } from '@/data/imagenes';
 import { leerNovedades, type Novedades } from '@/data/novedades';
 
 /** Al volver a la app después de este tiempo se descargan de nuevo el catálogo y las imágenes. */
 const MINUTOS_PARA_ACTUALIZAR = 5;
+/** Con la app abierta se descarga de nuevo cada tanto: el servidor renueva su copia del Excel cada 15 minutos. */
+const MINUTOS_REFRESCO = 15;
 
 /** Filtros de la pestaña Artículos. Inicio y Proveedores los fijan para abrirla ya filtrada. */
 export type FiltrosArticulos = FiltrosCatalogo;
@@ -75,11 +77,12 @@ export function AbastoProvider({ children }: { children: ReactNode }) {
     if (crudos.current) setDatos(fotos(crudos.current));
   }, []);
 
-  /** Descarga a la vez el catálogo y el Excel de imágenes de OneDrive. */
+  /** Descarga a la vez el catálogo, las imágenes y las regiones (del servidor o, si no hay, de OneDrive). */
   const bajar = useCallback(async () => {
     ultima.current = Date.now();
-    const [catalogo, imagenes] = await Promise.allSettled([descargar(), descargarImagenes()]);
-    if (imagenes.status === 'fulfilled' && imagenes.value) refrescarFotos();
+    const [catalogo, imagenes, regiones] = await Promise.allSettled([descargar(), descargarImagenes(), descargarRegiones()]);
+    const otras = [imagenes, regiones].some((r) => r.status === 'fulfilled' && r.value);
+    if (otras) refrescarFotos();
     if (catalogo.status === 'fulfilled') {
       mostrar(catalogo.value);
       setError(null);
@@ -98,7 +101,7 @@ export function AbastoProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Primero las copias guardadas (se ven al instante y sirven sin red); luego las versiones de OneDrive
     let vivo = true;
-    Promise.all([leerCopia(), cargarImagenesGuardadas(), leerNovedades()]).then(([copia, , nov]) => {
+    Promise.all([leerCopia(), cargarImagenesGuardadas(), leerNovedades(), cargarRegionesGuardadas()]).then(([copia, , nov]) => {
       if (vivo && copia && !crudos.current) mostrar(copia);
       else if (vivo) refrescarFotos();
       if (vivo) setNovedades((n) => n ?? nov);
@@ -112,9 +115,14 @@ export function AbastoProvider({ children }: { children: ReactNode }) {
         bajar();
       }
     });
+    // Con la app en pantalla, se vuelve a descargar sin interrumpir (sin el indicador de carga)
+    const reloj = setInterval(() => {
+      if (AppState.currentState === 'active' && Date.now() - ultima.current >= MINUTOS_REFRESCO * 60000) bajar();
+    }, 60000);
     return () => {
       vivo = false;
       sub.remove();
+      clearInterval(reloj);
     };
   }, [bajar, mostrar, refrescarFotos]);
 

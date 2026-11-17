@@ -17,7 +17,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { LINK_EXCEL, LINK_IMAGENES, urlDescarga } from '../src/data/vinculos.ts';
+import { LINK_EXCEL as LINK_EXCEL_APP, LINK_IMAGENES as LINK_IMAGENES_APP, urlDescarga } from '../src/data/vinculos.ts';
 import { buscarSugerencias } from './sugerencias.mjs';
 
 const XLSX = createRequire(import.meta.url)('xlsx');
@@ -25,7 +25,12 @@ const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..');
 // datos/config.json puede indicar otra ubicación para el Excel, p. ej. la carpeta de OneDrive sincronizada, para que
 // la app lo descargue al abrirse: { "excelImagenes": "C:\\Users\\...\\OneDrive - ...\\imagenes.xlsx" }
 const CONFIG = join(RAIZ, 'datos', 'config.json');
-const EXCEL = (existsSync(CONFIG) && JSON.parse(readFileSync(CONFIG, 'utf8')).excelImagenes) || join(RAIZ, 'datos', 'imagenes.xlsx');
+const AJUSTES = existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, 'utf8')) : {};
+const EXCEL = AJUSTES.excelImagenes || join(RAIZ, 'datos', 'imagenes.xlsx');
+// Vínculos de los Excel: datos/config.json (linkCatalogo, linkImagenes; la carpeta datos/ no se sube a git) o, si
+// no, los de la app. Así la app puede dejar de traerlos y quedan solo en el servidor y en esta computadora.
+const LINK_EXCEL = AJUSTES.linkCatalogo || LINK_EXCEL_APP;
+const LINK_IMAGENES = AJUSTES.linkImagenes || LINK_IMAGENES_APP;
 const CACHE = join(RAIZ, 'datos', '.cache-fotos.json');
 const SALIDA = join(RAIZ, 'src', 'data', 'imagenes.json');
 const CACHE_SUGERENCIAS = join(RAIZ, 'datos', '.cache-sugerencias.json');

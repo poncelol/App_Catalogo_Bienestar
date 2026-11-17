@@ -18,6 +18,13 @@ export const LINK_EXCEL =
 export const LINK_IMAGENES =
   'https://sdldiconsa1-my.sharepoint.com/:x:/g/personal/emponce_alimentacionbienestar_gob_mx/IQBR3sFMsgrnQLIP0OX6Uu0BAT0miz7AJ7BSBkPOmJo15sE?e=uSyb3x';
 
+/**
+ * Servidor de la app en Cloudflare (repositorio aparte: App Movil/BienestarBackend), p. ej. 'https://abasto-bienestar.<cuenta>.workers.dev'.
+ * Guarda una copia del Excel del catálogo (la renueva cada 15 minutos), las imágenes y las regiones.
+ * Vacío: la app descarga los Excel directo de OneDrive, como antes. Si el servidor falla, también.
+ */
+export const SERVIDOR = 'https://abasto-bienestar.abasto-bienestar-servidor.workers.dev';
+
 export type Archivo = 'catalogo' | 'imagenes';
 export const VINCULOS: Record<Archivo, string> = { catalogo: LINK_EXCEL, imagenes: LINK_IMAGENES };
 
