@@ -6,10 +6,11 @@ import type { FiltrosCatalogo } from '@/data/busqueda';
 import { cargarImagenesGuardadas, conImagenes, descargarImagenes, precargar } from '@/data/imagenes';
 import { leerNovedades, type Novedades } from '@/data/novedades';
 
-/** Al volver a la app después de este tiempo se descargan de nuevo el catálogo y las imágenes. */
+/**
+ * Al volver a la app después de este tiempo se pregunta al servidor si cambió algo. Si no cambió, contesta «sin
+ * cambios» y no se descarga nada; por eso no hace falta un reloj que recargue con la app abierta.
+ */
 const MINUTOS_PARA_ACTUALIZAR = 5;
-/** Con la app abierta se descarga de nuevo cada tanto: el servidor renueva su copia del Excel cada 15 minutos. */
-const MINUTOS_REFRESCO = 15;
 
 /** Filtros de la pestaña Artículos. Inicio y Proveedores los fijan para abrirla ya filtrada. */
 export type FiltrosArticulos = FiltrosCatalogo;
@@ -108,21 +109,16 @@ export function AbastoProvider({ children }: { children: ReactNode }) {
     });
     // En la siguiente vuelta del ciclo de eventos, para no cambiar el estado dentro del efecto
     void Promise.resolve().then(bajar);
-    // Al volver a la app después de un rato, se vuelve a descargar todo
+    // Al volver a la app después de un rato se pregunta si cambió algo (solo se descarga lo que cambió)
     const sub = AppState.addEventListener('change', (estado) => {
       if (estado === 'active' && Date.now() - ultima.current > MINUTOS_PARA_ACTUALIZAR * 60000) {
         setCargando(true);
         bajar();
       }
     });
-    // Con la app en pantalla, se vuelve a descargar sin interrumpir (sin el indicador de carga)
-    const reloj = setInterval(() => {
-      if (AppState.currentState === 'active' && Date.now() - ultima.current >= MINUTOS_REFRESCO * 60000) bajar();
-    }, 60000);
     return () => {
       vivo = false;
       sub.remove();
-      clearInterval(reloj);
     };
   }, [bajar, mostrar, refrescarFotos]);
 

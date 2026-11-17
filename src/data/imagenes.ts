@@ -140,13 +140,22 @@ export async function cargarImagenesGuardadas(): Promise<boolean> {
  * Devuelve false si no hay de dónde.
  */
 export async function descargarImagenes(): Promise<boolean> {
-  let nuevo: MapaImagenes | null = null;
-  if (SERVIDOR) nuevo = await pedirServidor<MapaImagenes>('/api/imagenes').catch(() => null);
-  if (!nuevo) {
-    if (!LINK_IMAGENES) return false;
-    nuevo = leerExcelImagenes(await descargarExcel('imagenes'));
+  if (SERVIDOR) {
+    try {
+      // Si ya hay copia guardada, solo se descarga si cambió (si no, el servidor responde 304 sin cuerpo)
+      const tengoCopia = !!(await AsyncStorage.getItem(CLAVE_CACHE).catch(() => null));
+      const r = await pedirServidor<MapaImagenes>('/api/imagenes', tengoCopia);
+      if (!r) return false;   // no cambió: siguen las guardadas
+      mapa = r.datos;
+      await AsyncStorage.setItem(CLAVE_CACHE, JSON.stringify(mapa)).catch(() => undefined);
+      await r.listo();
+      return true;
+    } catch {
+      // Respaldo: el Excel de OneDrive, si la app aún trae el vínculo
+    }
   }
-  mapa = nuevo;
+  if (!LINK_IMAGENES) return false;
+  mapa = leerExcelImagenes(await descargarExcel('imagenes'));
   await AsyncStorage.setItem(CLAVE_CACHE, JSON.stringify(mapa)).catch(() => undefined);
   return true;
 }

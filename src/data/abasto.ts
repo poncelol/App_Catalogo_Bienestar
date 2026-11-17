@@ -9,9 +9,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as XLSX from 'xlsx';
 
-import { descargarExcel, pedirServidor } from '@/data/descarga';
+import { catalogoServidor, descargarExcel, pedirServidor } from '@/data/descarga';
 import { registrarCambios } from '@/data/novedades';
-import { SERVIDOR, urlDescarga } from '@/data/vinculos';
+import { SERVIDOR, urlDescarga, VINCULOS } from '@/data/vinculos';
 
 export { LINK_EXCEL, urlDescarga } from '@/data/vinculos';
 
@@ -105,10 +105,14 @@ export async function cargarRegionesGuardadas() {
 /** Descarga las regiones del servidor y las guarda. Devuelve false si no hay servidor o no tiene regiones. */
 export async function descargarRegiones(): Promise<boolean> {
   if (!SERVIDOR) return false;
-  const lista = await pedirServidor<RegionServidor[]>('/api/regiones');
+  const tengoCopia = !!(await AsyncStorage.getItem(CLAVE_REGIONES).catch(() => null));
+  const r = await pedirServidor<RegionServidor[]>('/api/regiones', tengoCopia);
+  if (!r) return false;   // no cambió: siguen las guardadas
+  const lista = r.datos;
   if (!Array.isArray(lista) || !lista.length) return false;
   aplicarRegiones(lista);
   await AsyncStorage.setItem(CLAVE_REGIONES, JSON.stringify(lista)).catch(() => undefined);
+  await r.listo();
   return true;
 }
 
@@ -289,13 +293,29 @@ export function urlImagen(v: unknown): string | null {
   return link.replace(/^http:\/\//i, 'https://').replace(/[\s"<>[\\\]^`{|}]|[^\x00-\x7F]/gu, encodeURIComponent);
 }
 
+/**
+ * Catálogo al día. Con servidor, primero pregunta si cambió: si no, usa la copia guardada sin descargar ni volver a
+ * leer el Excel. Si el servidor falla y la app aún trae el vínculo, lo descarga de OneDrive.
+ */
 export async function descargar(): Promise<Datos> {
-  const contenido = await descargarExcel('catalogo');
+  const anterior = await leerCopia();
+  let contenido: ArrayBuffer;
+  let listo: (() => Promise<void>) | null = null;
+  try {
+    if (!SERVIDOR) throw new Error('Sin servidor');
+    const r = await catalogoServidor(!!anterior?.articulos.length);
+    if (!r && anterior) return { ...anterior, origen: 'red' };   // no cambió
+    contenido = r!.contenido;
+    listo = r!.listo;
+  } catch (e) {
+    if (SERVIDOR && !VINCULOS.catalogo) throw e;
+    contenido = await descargarExcel('catalogo');
+  }
   const datos: Datos = { articulos: leerExcel(contenido), descargado: new Date().toISOString(), origen: 'red' };
   // Antes de reemplazar la copia guardada, se compara con ella para registrar las novedades
-  const anterior = await leerCopia();
   if (anterior?.articulos.length) await registrarCambios(anterior.articulos, datos.articulos, anterior.descargado);
   await AsyncStorage.setItem(CLAVE_CACHE, JSON.stringify(datos)).catch(() => undefined);
+  await listo?.();
   return datos;
 }
 
