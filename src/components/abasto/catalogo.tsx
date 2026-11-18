@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { memo, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View, type TextStyle, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View, type TextStyle, type ViewStyle } from 'react-native';
+import { Text } from '@/components/texto';
 
 import { IlustracionProducto } from '@/components/abasto/ilustracion-producto';
 import { Icono, s as ui, type ICONOS } from '@/components/abasto/ui';
@@ -301,12 +302,12 @@ const styles = StyleSheet.create({
   linea: { height: 10, borderRadius: 5 },
   vacio: { alignItems: 'center', paddingVertical: Spacing.six, paddingHorizontal: Spacing.four, gap: Spacing.two },
   vacioIco: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.two },
-  vacioTitulo: { fontSize: 17, fontWeight: '700', textAlign: 'center' },
+  vacioTitulo: { textTransform: 'none', fontSize: 17, fontWeight: '700', textAlign: 'center' },
   vacioTexto: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   vacioBoton: { marginTop: Spacing.two, borderWidth: 1, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 8 },
   mas: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   masTexto: { fontSize: 14, fontWeight: '600' },
   seccionH: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
-  seccionTitulo: { fontSize: 18, fontWeight: '700' },
+  seccionTitulo: { textTransform: 'none', fontSize: 18, fontWeight: '700' },
   seccionAccion: { fontSize: 14, fontWeight: '600' },
 });

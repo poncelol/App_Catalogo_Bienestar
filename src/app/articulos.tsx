@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Keyboard, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from 'react-native';
+import { FlatList, Keyboard, Pressable, RefreshControl, StyleSheet, View, type TextInputInstance } from 'react-native';
+import { Text } from '@/components/texto';
 
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
 import { BarraBusqueda, EncabezadoBusqueda, PanelSugerencias, useRecientes } from '@/components/abasto/busqueda';

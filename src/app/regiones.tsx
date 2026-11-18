@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
-import { Keyboard, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type TextInputInstance } from 'react-native';
+import { Keyboard, Pressable, RefreshControl, ScrollView, StyleSheet, View, type TextInputInstance } from 'react-native';
+import { Text } from '@/components/texto';
 
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
 import { BarraBusqueda, EncabezadoBusqueda, Grupo, Renglon, useRecientes } from '@/components/abasto/busqueda';

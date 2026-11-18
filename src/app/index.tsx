@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/texto';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, G } from 'react-native-svg';
 
@@ -677,12 +678,12 @@ const styles = StyleSheet.create({
   encabezado: { paddingHorizontal: Spacing.four, paddingTop: Spacing.three, paddingBottom: Spacing.four, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   institucion: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.three },
   emblema: { width: 32, height: 34 },
-  gobierno: { flexShrink: 1, color: '#fff', fontSize: 20, fontWeight: '800', lineHeight: 25 },
+  gobierno: { textTransform: 'none', flexShrink: 1, color: '#fff', fontSize: 20, fontWeight: '800', lineHeight: 25 },
   separador: { width: 1, alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.4)' },
-  titulo: { color: '#fff', fontSize: 27, fontWeight: '800', lineHeight: 32 },
-  dependencia: { color: 'rgba(255,255,255,0.92)', fontSize: 15, fontWeight: '600', marginTop: 4 },
-  area: { color: DORADO, fontSize: 13, fontWeight: '700', marginTop: 4 },
-  fecha: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: Spacing.three },
+  titulo: { textTransform: 'none', color: '#fff', fontSize: 27, fontWeight: '800', lineHeight: 32 },
+  dependencia: { textTransform: 'none', color: 'rgba(255,255,255,0.92)', fontSize: 15, fontWeight: '600', marginTop: 4 },
+  area: { textTransform: 'none', color: DORADO, fontSize: 13, fontWeight: '700', marginTop: 4 },
+  fecha: { textTransform: 'none', color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: Spacing.three },
   franja: { height: 4, backgroundColor: DORADO },
   cuerpo: { padding: Spacing.three, gap: Spacing.three, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   buscar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 13 },
@@ -712,8 +713,8 @@ const styles = StyleSheet.create({
   avisoTexto: { fontSize: 14, lineHeight: 20 },
   seccion: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
   seccionH: { flexDirection: 'row', gap: Spacing.three, padding: Spacing.three, alignItems: 'center' },
-  seccionTitulo: { fontSize: 18, fontWeight: '700' },
-  seccionDesc: { fontSize: 13, marginTop: 2, lineHeight: 18 },
+  seccionTitulo: { textTransform: 'none', fontSize: 18, fontWeight: '700' },
+  seccionDesc: { textTransform: 'none', fontSize: 13, marginTop: 2, lineHeight: 18 },
   regla: { height: StyleSheet.hairlineWidth, marginHorizontal: Spacing.three },
   seccionCuerpo: { padding: Spacing.three, gap: Spacing.three },
   seccionPie: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.three, paddingHorizontal: Spacing.three, paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth },

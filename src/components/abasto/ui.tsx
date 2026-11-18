@@ -1,6 +1,7 @@
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { ReactNode } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/texto';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomTabInset, MaxContentWidth, Spacing, type Palette } from '@/constants/theme';
@@ -243,17 +244,17 @@ export const s = StyleSheet.create({
   scroll: { paddingBottom: BottomTabInset + Spacing.four },
   cuerpo: { padding: Spacing.three, gap: Spacing.three, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   banner: { paddingHorizontal: Spacing.four, paddingTop: Spacing.three, paddingBottom: Spacing.four, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
-  bannerEyebrow: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '500' },
-  bannerTitulo: { color: '#fff', fontSize: 26, fontWeight: '700', marginTop: 4 },
-  bannerSub: { color: 'rgba(255,255,255,0.88)', fontSize: 14, marginTop: 4 },
+  bannerEyebrow: { textTransform: 'none', color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '500' },
+  bannerTitulo: { textTransform: 'none', color: '#fff', fontSize: 26, fontWeight: '700', marginTop: 4 },
+  bannerSub: { textTransform: 'none', color: 'rgba(255,255,255,0.88)', fontSize: 14, marginTop: 4 },
   bannerFranja: { height: 4, backgroundColor: '#CFB579' },
   estado: { fontSize: 12, textAlign: 'center' },
   aviso: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center', borderRadius: 10, borderLeftWidth: 4, padding: Spacing.three },
   avisoTexto: { flex: 1, fontSize: 13, lineHeight: 18 },
   tarjeta: { borderRadius: 12, overflow: 'hidden' },
   tarjetaH: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.two, padding: Spacing.three, borderBottomWidth: StyleSheet.hairlineWidth },
-  tarjetaTitulo: { fontSize: 16, fontWeight: '600' },
-  tarjetaSub: { fontSize: 12, marginTop: 2 },
+  tarjetaTitulo: { textTransform: 'none', fontSize: 16, fontWeight: '600' },
+  tarjetaSub: { textTransform: 'none', fontSize: 12, marginTop: 2 },
   tarjetaCuerpo: { padding: Spacing.three },
   extra: { fontSize: 12, fontWeight: '600', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, overflow: 'hidden' },
   kpi: { flex: 1, minWidth: 0, borderRadius: 12, padding: 12, gap: 2 },

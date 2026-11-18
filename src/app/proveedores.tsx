@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { memo, useCallback, useDeferredValue, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/texto';
 
 import { BarraBusqueda, EncabezadoBusqueda } from '@/components/abasto/busqueda';
 import { Foto, Vacio } from '@/components/abasto/catalogo';

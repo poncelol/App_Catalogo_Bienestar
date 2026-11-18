@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ScrollViewInstance,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View, type ScrollViewInstance,
 } from 'react-native';
+import { Text } from '@/components/texto';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Entrada as Animar, Escribiendo } from '@/components/abasto/animaciones';
@@ -435,7 +436,7 @@ function Centro({ children }: { children: ReactNode }) {
 
 const styles = StyleSheet.create({
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.four, gap: Spacing.three },
-  tituloEstado: { fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  tituloEstado: { textTransform: 'none', fontSize: 18, fontWeight: '700', textAlign: 'center' },
   textoEstado: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
   detalle: { fontSize: 11, lineHeight: 15, textAlign: 'center', maxWidth: 420 },
   barraFondo: { width: '100%', maxWidth: 320, height: 8, borderRadius: 4, overflow: 'hidden' },

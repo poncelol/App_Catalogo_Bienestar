@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState, type ReactNode, type Ref } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputInstance } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View, type TextInputInstance } from 'react-native';
+import { Text } from '@/components/texto';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Foto, Resaltado } from '@/components/abasto/catalogo';
@@ -223,7 +224,7 @@ export function Renglon({ icono, onPress, onCompletar, extra, children }: {
 const styles = StyleSheet.create({
   encabezado: { paddingHorizontal: Spacing.three, paddingTop: Spacing.two, paddingBottom: Spacing.three, gap: Spacing.two, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   tituloFila: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 36 },
-  titulo: { color: '#fff', fontSize: 26, fontWeight: '700' },
+  titulo: { textTransform: 'none', color: '#fff', fontSize: 26, fontWeight: '700' },
   franja: { height: 3, backgroundColor: '#CFB579' },
   barraFila: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   barra: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderRadius: 12, paddingHorizontal: 12, minHeight: 42 },

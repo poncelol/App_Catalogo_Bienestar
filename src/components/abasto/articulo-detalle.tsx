@@ -1,4 +1,5 @@
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/texto';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Foto } from '@/components/abasto/catalogo';
@@ -127,7 +128,7 @@ const styles = StyleSheet.create({
   credito: { fontSize: 10, textAlign: 'right', marginTop: 4 },
   encabezado: { gap: 4 },
   marca: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
-  nombre: { fontSize: 22, fontWeight: '700', lineHeight: 28 },
+  nombre: { textTransform: 'none', fontSize: 22, fontWeight: '700', lineHeight: 28 },
   presentacion: { fontSize: 15 },
   precioFila: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: Spacing.two },
   precio: { fontSize: 28, fontWeight: '800' },

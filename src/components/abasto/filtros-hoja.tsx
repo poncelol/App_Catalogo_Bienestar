@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Text } from '@/components/texto';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Chip, Icono, s as ui } from '@/components/abasto/ui';
@@ -151,10 +152,10 @@ function Lista({ titulo, opciones, elegido, placeholder, onElegir }: {
 const styles = StyleSheet.create({
   hoja: { flex: 1 },
   cabeza: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.three, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
-  titulo: { fontSize: 17, fontWeight: '700' },
+  titulo: { textTransform: 'none', fontSize: 17, fontWeight: '700' },
   accion: { fontSize: 16 },
   cuerpo: { padding: Spacing.three, gap: Spacing.four, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
-  bloqueTitulo: { fontSize: 15, fontWeight: '700' },
+  bloqueTitulo: { textTransform: 'none', fontSize: 15, fontWeight: '700' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   buscar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10 },
   input: { flex: 1, fontSize: 15, paddingVertical: 8 },

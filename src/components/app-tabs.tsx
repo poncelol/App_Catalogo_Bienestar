@@ -18,27 +18,27 @@ export default function AppTabs() {
       iconColor={{ default: colors.muted, selected: colors.accent }}
       labelStyle={{ default: { color: colors.muted }, selected: { color: colors.accent } }}>
       <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Inicio</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>INICIO</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="house.fill" md="home" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="articulos">
-        <NativeTabs.Trigger.Label>Artículos</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>ARTÍCULOS</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="shippingbox.fill" md="inventory_2" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="productos">
-        <NativeTabs.Trigger.Label>Productos</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>PRODUCTOS</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="cart.fill" md="shopping_cart" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="regiones">
-        <NativeTabs.Trigger.Label>Regiones</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>REGIONES</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="map.fill" md="map" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="proveedores">
-        <NativeTabs.Trigger.Label>Proveedores</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>PROVEEDORES</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="building.2.fill" md="storefront" />
       </NativeTabs.Trigger>
     </NativeTabs>

@@ -1,4 +1,5 @@
-import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
+import { Platform, StyleSheet, type TextProps } from 'react-native';
+import { Text } from './texto';
 
 import { Fonts, ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -31,11 +32,13 @@ const styles = StyleSheet.create({
     fontWeight: 500,
   },
   title: {
+    textTransform: 'none',
     fontSize: 48,
     fontWeight: 600,
     lineHeight: 52,
   },
   subtitle: {
+    textTransform: 'none',
     fontSize: 32,
     lineHeight: 44,
     fontWeight: 600,

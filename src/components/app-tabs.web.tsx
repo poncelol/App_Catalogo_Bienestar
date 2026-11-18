@@ -7,7 +7,8 @@ import {
   TabListProps,
 } from 'expo-router/ui';
 import { createContext, useContext, type Ref } from 'react';
-import { Pressable, View, StyleSheet, Text, useWindowDimensions, type PressableInstance } from 'react-native';
+import { Pressable, View, StyleSheet, useWindowDimensions, type PressableInstance } from 'react-native';
+import { Text } from './texto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icono, type ICONOS } from '@/components/abasto/ui';
@@ -127,7 +128,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     maxWidth: MaxContentWidth,
   },
-  brandText: {
+  brandText: { textTransform: 'none',
     marginRight: 'auto',
     flexShrink: 1,
   },

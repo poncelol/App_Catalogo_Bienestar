@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/texto';
 
 import { Icono, s as ui, type ICONOS } from '@/components/abasto/ui';
 import { Spacing } from '@/constants/theme';

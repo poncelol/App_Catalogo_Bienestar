@@ -6,7 +6,8 @@
  * dentro de otra, sacan al elemento del flujo mientras corren y en la web la gráfica se encimaba o desaparecía.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Text, View, type StyleProp, type TextProps, type ViewStyle } from 'react-native';
+import { View, type StyleProp, type TextProps, type ViewStyle } from 'react-native';
+import { Text } from '@/components/texto';
 import Animated, {
   Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming,
 } from 'react-native-reanimated';

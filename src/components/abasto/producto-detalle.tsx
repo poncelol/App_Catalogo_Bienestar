@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/texto';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
@@ -117,7 +118,7 @@ const styles = StyleSheet.create({
   foto: { aspectRatio: undefined, height: 200, borderRadius: 16 },
   cerrar: { position: 'absolute', top: 10, right: 10, width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   clave: { fontSize: 12, fontWeight: '700', letterSpacing: 0.6 },
-  nombre: { fontSize: 24, fontWeight: '700' },
+  nombre: { textTransform: 'none', fontSize: 24, fontWeight: '700' },
   rango: { fontSize: 20, fontWeight: '700', marginTop: 4 },
   cu: { fontSize: 13, fontWeight: '400' },
   resumen: { fontSize: 13 },

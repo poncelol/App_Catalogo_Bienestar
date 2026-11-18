@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/texto';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entrada } from '@/components/abasto/animaciones';
@@ -131,8 +132,8 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.three, paddingBottom: Spacing.three, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center',
   },
   logo: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  titulo: { color: '#fff', fontSize: 20, fontWeight: '700' },
-  sub: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 1 },
+  titulo: { textTransform: 'none', color: '#fff', fontSize: 20, fontWeight: '700' },
+  sub: { textTransform: 'none', color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 1 },
   boton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' },
   franja: { height: 3, backgroundColor: '#CFB579' },
   flotante: { position: 'absolute', right: Spacing.four + Spacing.two },
