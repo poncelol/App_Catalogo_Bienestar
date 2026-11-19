@@ -130,7 +130,8 @@ export function useMotor(): Motor {
         salida = await generar([]);
       } else {
         // La tarjeta gráfica se reinició (pestaña en segundo plano, controlador): al reabrir, se carga de nuevo
-        if (/device|lost|disposed|unload/i.test(detalle(e))) {
+        // («mapAsync … Buffer was unmapped»: Android liberó la memoria de la GPU a media respuesta)
+        if (/device|lost|disposed|unload|unmapped|mapAsync|GPUBuffer/i.test(detalle(e))) {
           cargado = null;
           carga = null;
           setEstado({ fase: 'error', tipo: 'carga', detalle: detalle(e) });
