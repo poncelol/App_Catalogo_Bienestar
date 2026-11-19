@@ -1145,7 +1145,7 @@ export function revisarRespuesta(original: string, datos: string): { texto: stri
   const respuesta = pulir(original);
   // Un modelo pequeño a veces se pasa a otro idioma (Qwen, al chino) o se queda repitiendo: mejor no mostrarlo
   if (/[぀-ヿ一-鿿가-힯]/.test(respuesta) || !respuesta) {
-    return { texto: datos ? 'No pude redactar bien la respuesta; revisa los artículos de abajo o pregunta de otra forma.' : SIN_DATOS };
+    return { texto: respuestaSinModelo(datos) };
   }
   const cifras = respuesta.match(/\$?\s?\d[\d,]*\.\d{2}|ART\.?\s*\d+/gi) ?? [];
   if (!datos) return cifras.length || /\$\s?\d/.test(respuesta) ? { texto: SIN_DATOS } : { texto: respuesta };
@@ -1157,6 +1157,21 @@ export function revisarRespuesta(original: string, datos: string): { texto: stri
   return dudosas.length
     ? { texto: respuesta, aviso: 'Algunos datos de esta respuesta no coinciden con el catálogo; confirma en las tarjetas de abajo.' }
     : { texto: respuesta };
+}
+
+/**
+ * Respuesta sin el modelo, cuando no pudo responder (plan C): las cifras ya calculadas de la consulta (cuántos hay,
+ * el más barato, el más caro, la comparación…) tal cual. Los renglones de cada artículo se quitan: ya están en las
+ * tarjetas de abajo.
+ */
+export function respuestaSinModelo(datos: string): string {
+  if (!datos) return SIN_DATOS;
+  const texto = pulir(datos
+    .split('\n')
+    .filter((l) => !/\(ART\. \d+\)\s*$/.test(l) && !/^(Son|El primero|Los primeros \d+):$/.test(l.trim()))
+    .join('\n'))
+    .replace(/\n{3,}/g, '\n\n');
+  return texto || 'Esto es lo que encontré en el catálogo:';
 }
 
 /** Quita prefijos como «Respuesta:» y las líneas repetidas seguidas (los modelos pequeños a veces se ciclan). */

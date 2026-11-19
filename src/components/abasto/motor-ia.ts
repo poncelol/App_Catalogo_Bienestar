@@ -97,9 +97,10 @@ export function useMotor(): Motor {
   }, []);
 
   const enviar: Motor['enviar'] = async (mensaje, onCrudo) => {
-    const m = cargado;
-    if (!m) throw new Error('El asistente todavía no está listo.');
     cancelado.current = false;
+    // Si la tarjeta gráfica se reinició en la pregunta anterior, el modelo se vuelve a cargar aquí, sin avisar:
+    // ya está en el almacenamiento del navegador, así que no se descarga otra vez
+    const m = cargado ?? (await cargarMotor(() => undefined));
     const pregunta: ChatCompletionMessageParam = { role: 'user', content: mensaje };
     const generar = async (previos: ChatCompletionMessageParam[]) => {
       // Casi sin aleatoriedad, para que se apegue a los datos, y con castigo a repetir, para que no se cicle
@@ -129,12 +130,13 @@ export function useMotor(): Motor {
         historial.current = [];
         salida = await generar([]);
       } else {
-        // La tarjeta gráfica se reinició (pestaña en segundo plano, controlador): al reabrir, se carga de nuevo
-        // («mapAsync … Buffer was unmapped»: Android liberó la memoria de la GPU a media respuesta)
+        // La tarjeta gráfica se reinició (pestaña en segundo plano, controlador; «mapAsync … Buffer was unmapped»:
+        // Android liberó su memoria a media respuesta). Se suelta el modelo para que el siguiente intento lo cargue
+        // de nuevo; el chat reintenta solo y, si tampoco sale, responde con los datos del catálogo
         if (/device|lost|disposed|unload|unmapped|mapAsync|GPUBuffer/i.test(detalle(e))) {
           cargado = null;
           carga = null;
-          setEstado({ fase: 'error', tipo: 'carga', detalle: detalle(e) });
+          await m.unload().catch(() => undefined);
         }
         throw e;
       }

@@ -14,7 +14,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { contar, entero } from '@/data/abasto';
 import { useAbasto } from '@/data/abasto-context';
 import {
-  consultarCatalogo, describir, limpiarRespuesta, mensajeConDatos, revisarRespuesta, tieneFiltros, tieneTema,
+  consultarCatalogo, describir, limpiarRespuesta, mensajeConDatos, respuestaSinModelo, revisarRespuesta, tieneFiltros, tieneTema,
   planear, presupuestoDatos, type EstadoMotor, type Grupo, type Intencion, type Mensaje, type PropsChat,
 } from '@/data/asistente';
 import { imagenProveedor } from '@/data/imagenes';
@@ -118,17 +118,36 @@ function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat 
         if (!terminado) cambiar({ texto: limpiarRespuesta(ultimo) });
       }, 80);
     };
+    // A: el modelo responde. B: si falla, se reintenta una vez (en la web, con el modelo recargado si la tarjeta
+    // gráfica se reinició). C: si también falla, se responde con las cifras de la consulta, sin modelo. El error
+    // nunca se muestra
+    const mensaje = mensajeConDatos(q, consulta.datos);
+    const conModelo = async () => {
+      try {
+        return await motor.enviar(mensaje, alEscribir);
+      } catch {
+        ultimo = '';
+        cambiar({ texto: '' });
+        return await motor.enviar(mensaje, alEscribir);
+      }
+    };
     try {
-      const { texto, cancelado } = await motor.enviar(mensajeConDatos(q, consulta.datos), alEscribir);
+      const { texto, cancelado } = await conModelo();
       terminado = true;
       // Antes de dejar la respuesta, se revisa que sus cifras hayan salido de los datos consultados
       const revisada = cancelado
         ? { texto: limpiarRespuesta(ultimo) ? `${limpiarRespuesta(ultimo)}…\n\n(Respuesta detenida)` : 'Respuesta detenida.' }
         : revisarRespuesta(texto, consulta.datos);
       cambiar({ ...revisada, pendiente: false });
-    } catch (e) {
+    } catch {
       terminado = true;
-      cambiar({ texto: `No pude responder: ${e instanceof Error ? e.message : String(e)}`, pendiente: false, error: true, pregunta: q });
+      let texto: string;
+      try {
+        texto = respuestaSinModelo(consulta.datos);
+      } catch {
+        texto = 'Esto es lo que encontré en el catálogo:';
+      }
+      cambiar({ texto, pendiente: false });
     } finally {
       ocupado.current = false;
       setGenerando(false);
