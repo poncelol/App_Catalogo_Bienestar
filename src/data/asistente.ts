@@ -94,7 +94,8 @@ export function instrucciones() {
     'Responde siempre en español, con palabras sencillas, como le explicarías a una persona que no conoce el sistema.',
     'Cada mensaje trae los "Datos del catálogo" consultados para esa pregunta. Usa SOLO esos datos: no inventes artículos, precios ni cantidades.',
     'Forma de responder:',
-    '- Empieza contestando directo la pregunta en una frase (por ejemplo: "Encontré 12 artículos de vinagre; el más económico es…").',
+    // (Sin un ejemplo con cifras: un modelo pequeño lo copia tal cual en respuestas que no tienen nada que ver)
+    '- Empieza contestando directo la pregunta en una frase, con el total y el tema exactos que traen los datos.',
     '- Si hay varios, menciona solo 2 o 3 de los más útiles, cada uno en una viñeta con nombre, marca, presentación y precio.',
     '- Si preguntan por proveedores, di cuántos son (el número que traen los datos) y nombra los 3 con más artículos, con cuántos artículos tiene cada uno.',
     '- Una hoja de negociación es el acuerdo con un proveedor: fija sus artículos, precios, tipo de inventario (PAR, Oferta u otro), cobertura y vigencia. Si preguntan por hojas, di cuántas son y nombra 2 o 3 con su proveedor y la fecha en que vencen.',
@@ -388,7 +389,38 @@ const VACIAS = new Set(`
   respecto promedio promedios rango cual cuales excepto salvo quitando exceptuando sea sean distinto distinta
   distintos distintas diferente diferentes otro otra cuenta contar esten estan esta
   ese esa esos esas eso quienes mismo misma mismos mismas aquel aquella aquellos aquellas ellas
+  tienes tiene tenga tengan tendras tendran porque puedo puede pueden podemos sirve sirven servir usar uso ocupo ocupa
+  ocupamos necesita necesitan necesitamos alguien algo cosa cosas
 `.split(/\s+/).filter(Boolean));
+
+/**
+ * Para qué sirve algo («¿qué tienes para lavar?») → los productos que sirven para eso. Cada producto va separado
+ * por comas: se consulta como una parte de la pregunta. Solo si la pregunta no nombra ya un producto.
+ */
+const USOS: [RegExp, string][] = [
+  [/\b(para |de )?(lavar|lavado|lavanderia|ropa)\b/g, ' , detergente, lavanderia, suavizantes, blanqueadores , '],
+  [/\b(para |de )?(limpiar|limpieza|trapear|desinfectar|asear la casa)\b/g, ' , limpiadores liquidos, desinfectantes, trapeadores, escobas , '],
+  [/\b(para |de )?(el |la |los |las |un |una )?(bebes?|recien nacidos?)\b/g, ' , panales, formula, colados, biberones , '],
+  [/\b(para |de )?(los )?dientes\b/g, ' , cremas dentales, cepillos dentales , '],
+  [/\b(para |de )?(los |las )?(plagas|cucarachas|ratas|ratones|moscos|mosquitos|insectos|bichos)\b/g, ' , insecticidas , '],
+];
+
+function conUsos(pregunta: string, arts: Articulo[]) {
+  const q = sinAcentos(pregunta);
+  if (!USOS.some(([re]) => re.test(q)) || entender(pregunta, arts).producto) return pregunta;
+  return USOS.reduce((t, [re, productos]) => t.replace(re, productos), q);
+}
+
+/** Palabras del catálogo (artículos, productos, marcas y proveedores), para no buscar palabras que no son de él. */
+const vocabularios = new WeakMap<Articulo[], string[]>();
+function vocabulario(arts: Articulo[]) {
+  let v = vocabularios.get(arts);
+  if (!v) {
+    v = [...new Set(arts.flatMap((a) => palabras(`${a.articulo} ${a.producto} ${a.marca} ${a.provCorto}`)))];
+    vocabularios.set(arts, v);
+  }
+  return v;
+}
 
 /** Palabras de razones sociales que no identifican a un proveedor. */
 const GENERICAS_PROVEEDOR = new Set(`
@@ -702,7 +734,8 @@ function compuestos(arts: Articulo[]) {
  * «compara los aceites Patrona y Cristal») los separa en partes y cada una se consulta por su lado; los filtros
  * de la pregunta («en oferta», «menos de $30») y el producto en común valen para todas.
  */
-export function planear(pregunta: string, previa: Intencion | null, arts: Articulo[]): Intencion {
+export function planear(original: string, previa: Intencion | null, arts: Articulo[]): Intencion {
+  const pregunta = conUsos(original, arts);
   const q = sinAcentos(pregunta);
   const toda = entender(pregunta, arts);
   const comparar = COMPARAR.test(q);
@@ -897,6 +930,8 @@ function consultarParte(i: Intencion, todos: Articulo[], limite: number, resumen
     busqueda = buscar.execute({ ...filtros, texto });
     for (const w of i.clave) {
       if (!sinNada(busqueda)) break;
+      // Solo palabras que sí están en el catálogo: si no, «mal» (de «me siento mal») encuentra las Malvinas
+      if (!aparece(vocabulario(todos), w)) continue;
       busqueda = buscar.execute({ ...filtros, texto: [i.marca, w].filter(Boolean).join(' ') });
     }
     // (solo si queda una marca o un proveedor: con solo filtros saldría todo, p. ej. todas las ofertas, y no el tema)
@@ -1154,9 +1189,50 @@ export function revisarRespuesta(original: string, datos: string): { texto: stri
     const n = c.replace(/[$,\s]/g, '').replace(/^ART\.?/i, '');
     return !consultado.includes(/^\d+$/.test(n) ? `ART. ${n}` : n);
   });
-  return dudosas.length
-    ? { texto: respuesta, aviso: 'Algunos datos de esta respuesta no coinciden con el catálogo; confirma en las tarjetas de abajo.' }
-    : { texto: respuesta };
+  // Un precio o una cuenta que no está en los datos es inventado («12 proveedores» cuando son 99): en vez de la
+  // respuesta del modelo, las cifras de la consulta tal cual
+  return dudosas.length || cuentasDudosas(respuesta, datos) ? { texto: respuestaSinModelo(datos) } : { texto: respuesta };
+}
+
+const CONTABLES = 'articul|proveedor|product|marca|hoja|tipo|region|gerencia';
+
+/** ¿Dice «N artículos», «N proveedores»… con un número que no está así en los datos? */
+function cuentasDudosas(respuesta: string, datos: string) {
+  const d = sinAcentos(datos).replace(/(\d),(\d)/g, '$1$2');
+  const cuentas = sinAcentos(respuesta).replace(/(\d),(\d)/g, '$1$2')
+    .matchAll(new RegExp(`\\b(\\d+)\\s+(?:[a-zñ]+\\s+){0,2}?(${CONTABLES})`, 'g'));
+  return [...cuentas].some(([, n, raiz]) => ![
+    `\\b${n}\\s+(?:[a-zñ.]+\\s+){0,2}${raiz}`, // «99 proveedores», «4 tipos de inventario»
+    `${raiz}[a-z]*:\\s*${n}\\b`, // «Proveedores: 99»
+    `\\(${n}\\)`, // «Galletas diversas (104)»
+  ].some((re) => new RegExp(re).test(d)));
+}
+
+/** Datos de una consulta que no encontró nada («No encontré artículos «tienes lavar».»). */
+function sinResultados(datos: string) {
+  const lineas = datos.split('\n').map((l) => l.trim()).filter((l) => l && !l.endsWith(':'));
+  return lineas.length > 0 && lineas.every((l) => /^(No encontr|No se encontraron|No reconozco|Sin datos)/.test(l));
+}
+
+const SIN_VENTAS = 'El catálogo no tiene datos de ventas, así que no puedo decir qué se vende más. Sí puedo decirte qué productos tienen más artículos, '
+  + 'cuáles son los más baratos o quién los vende; por ejemplo: «¿qué productos tienen más artículos?».';
+const SALUDO = '¡Hola! Puedo ayudarte con el catálogo de Abasto Rural: artículos, precios, proveedores, hojas de negociación y regiones. '
+  + 'Por ejemplo: «¿qué aceites hay y cuál es el más barato?».';
+const GRACIAS = '¡Con gusto! Si necesitas algo más del catálogo, pregúntame.';
+
+/**
+ * Respuesta sin pasar por el modelo, cuando no hay nada que redactar: preguntas de ventas (el catálogo no las
+ * tiene), saludos, preguntas que no son del catálogo y búsquedas sin resultados. Ahí es donde un modelo pequeño
+ * inventa. null si la pregunta sí va al modelo.
+ */
+export function respuestaDirecta(pregunta: string, datos: string): string | null {
+  const q = sinAcentos(pregunta);
+  if (/\b(mas|menos) (vendid|comprad|pedid|solicitad)|\bventas?\b|\bmas se vende/.test(q)) return SIN_VENTAS;
+  if (!datos) {
+    if (/^\W*(hola|buen[oa]s|que tal|hey|saludos)\b/.test(q)) return SALUDO;
+    return /\bgracias\b/.test(q) ? GRACIAS : SIN_DATOS;
+  }
+  return sinResultados(datos) ? respuestaSinModelo(datos) : null;
 }
 
 /**
@@ -1166,6 +1242,9 @@ export function revisarRespuesta(original: string, datos: string): { texto: stri
  */
 export function respuestaSinModelo(datos: string): string {
   if (!datos) return SIN_DATOS;
+  if (sinResultados(datos)) {
+    return `${pulir(datos)}\n\nPrueba con el nombre de un producto, una marca o un proveedor; por ejemplo: «detergente», «aceite» o «La Costeña».`;
+  }
   const texto = pulir(datos
     .split('\n')
     .filter((l) => !/\(ART\. \d+\)\s*$/.test(l) && !/^(Son|El primero|Los primeros \d+):$/.test(l.trim()))

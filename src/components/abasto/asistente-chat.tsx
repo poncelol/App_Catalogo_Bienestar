@@ -14,7 +14,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { contar, entero } from '@/data/abasto';
 import { useAbasto } from '@/data/abasto-context';
 import {
-  consultarCatalogo, describir, limpiarRespuesta, mensajeConDatos, respuestaSinModelo, revisarRespuesta, tieneFiltros, tieneTema,
+  consultarCatalogo, describir, limpiarRespuesta, mensajeConDatos, respuestaDirecta, respuestaSinModelo, revisarRespuesta, tieneFiltros, tieneTema,
   planear, presupuestoDatos, type EstadoMotor, type Grupo, type Intencion, type Mensaje, type PropsChat,
 } from '@/data/asistente';
 import { imagenProveedor } from '@/data/imagenes';
@@ -95,14 +95,21 @@ function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat 
     if (tieneTema(intencion) || tieneFiltros(intencion)) previa.current = intencion;
 
     const id = nuevoId();
-    setGenerando(true);
-    // Las tarjetas aparecen de inmediato; el modelo redacta mientras tanto
-    setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, {
-      id, rol: 'asistente', texto: '', pendiente: true,
+    const tarjetas = {
       articulos: consulta.articulos, proveedores: consulta.proveedores, productos: consulta.productos,
       hojas: consulta.hojas, inventarios: consulta.inventarios, regiones: consulta.regiones,
       entendido: describir(intencion),
-    }]);
+    };
+    // Sin nada que redactar (ventas, saludos, nada encontrado), la respuesta sale directa: ahí el modelo inventa
+    const directa = respuestaDirecta(q, consulta.datos);
+    if (directa) {
+      setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, { id, rol: 'asistente', texto: directa, ...tarjetas }]);
+      ocupado.current = false;
+      return;
+    }
+    setGenerando(true);
+    // Las tarjetas aparecen de inmediato; el modelo redacta mientras tanto
+    setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, { id, rol: 'asistente', texto: '', pendiente: true, ...tarjetas }]);
     const cambiar = (c: Partial<Mensaje>) => setMensajes((m) => m.map((x) => (x.id === id ? { ...x, ...c } : x)));
     // El texto llega palabra por palabra: se muestra a lo más cada 80 ms, no en cada palabra (redibujar toda la
     // conversación tantas veces la vuelve lenta)
