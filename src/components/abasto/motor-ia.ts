@@ -8,11 +8,15 @@
  *   contexto es mucho más chica que la de Qwen (~32 KB por token contra ~114 KB): usa menos tarjeta gráfica que el
  *   Qwen 3 0.6B de antes, aun siendo más grande.
  *
- * Para no ocupar la tarjeta gráfica de más, el modelo se suelta cuando la página pasa a segundo plano (si no, en
- * Android el sistema le quita la memoria a media respuesta) y tras unos minutos con el asistente cerrado. Al volver
- * se carga del almacenamiento del navegador, sin descargarse otra vez.
+ * El modelo corre en un Web Worker (motor-ia.worker.ts), un hilo aparte: la pantalla no se traba mientras carga o
+ * escribe. Si el navegador no puede crear el worker, corre en la página como antes.
+ *
+ * Memoria: si el asistente se usó en los últimos días y el modelo ya está descargado, se carga al abrir la página
+ * (en espera), para que al abrir el asistente ya esté listo. Se suelta cuando la página pasa a segundo plano (si no,
+ * en Android el sistema le quita la memoria a media respuesta) y tras un rato con el asistente cerrado (5 minutos en
+ * teléfono, 20 en computadora). Al volver se carga del almacenamiento del navegador, sin descargarse otra vez.
  */
-import type { ChatCompletionMessageParam, MLCEngine } from '@mlc-ai/web-llm';
+import type { ChatCompletionMessageParam, MLCEngineInterface } from '@mlc-ai/web-llm';
 import { useEffect, useRef, useState } from 'react';
 
 import { instrucciones, limpiarRespuesta, RESPUESTA_MAX, type EstadoMotor, type Motor } from '@/data/asistente';
@@ -24,10 +28,16 @@ type Perfil = {
   tamano: string;
   /** Los Qwen 3 razonan antes de responder si no se les pide lo contrario (enable_thinking). */
   qwen3: boolean;
+  /** Con el asistente cerrado este tiempo, se suelta el modelo. */
+  liberarTrasMs: number;
 };
 
-const COMPLETO: Perfil = { f16: 'Qwen3-1.7B-q4f16_1-MLC', f32: 'Qwen3-1.7B-q4f32_1-MLC', tamano: '1 GB', qwen3: true };
-const LIGERO: Perfil = { f16: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', f32: 'Llama-3.2-1B-Instruct-q4f32_1-MLC', tamano: '700 MB', qwen3: false };
+const COMPLETO: Perfil = {
+  f16: 'Qwen3-1.7B-q4f16_1-MLC', f32: 'Qwen3-1.7B-q4f32_1-MLC', tamano: '1 GB', qwen3: true, liberarTrasMs: 20 * 60 * 1000,
+};
+const LIGERO: Perfil = {
+  f16: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', f32: 'Llama-3.2-1B-Instruct-q4f32_1-MLC', tamano: '700 MB', qwen3: false, liberarTrasMs: 5 * 60 * 1000,
+};
 /** Modelos de versiones anteriores: se borran del navegador para no ocupar espacio. */
 const ANTERIORES = ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-0.6B-q4f32_1-MLC'];
 
@@ -45,8 +55,9 @@ const TURNOS_PREVIOS = 2;
 const CONTEXTO = 4096;
 /** Lo que se aparta para las preguntas y respuestas anteriores que se le recuerdan. */
 const RESERVA_HISTORIAL = TURNOS_PREVIOS * (60 + RESPUESTA_MAX);
-/** Con el asistente cerrado este tiempo, se suelta el modelo. */
-const LIBERAR_TRAS_MS = 5 * 60 * 1000;
+/** Si el asistente se usó en estos días, el modelo se carga al abrir la página. */
+const DIAS_PRECARGA = 7;
+const CLAVE_USO = 'asistente.ultimoUso';
 
 export const INFO_MOTOR = {
   get tamano() {
@@ -55,11 +66,43 @@ export const INFO_MOTOR = {
   lugar: 'tu navegador',
 };
 
+function ultimoUso() {
+  try {
+    return Number(localStorage.getItem(CLAVE_USO)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function registrarUso() {
+  try {
+    localStorage.setItem(CLAVE_USO, String(Date.now()));
+  } catch {
+    // (navegación privada o almacenamiento bloqueado: solo no se precarga la próxima vez)
+  }
+}
+
 /**
- * En la web no se descarga en segundo plano: sería casi 1 GB para cada visitante de la página, lo use o no.
- * Se descarga solo al abrir el asistente.
+ * Al abrir la página: si el asistente se usó en los últimos días y el modelo ya está descargado, lo carga en espera
+ * (en el worker, sin trabar la pantalla). Nunca descarga: sería casi 1 GB para cada visitante, lo use o no; la
+ * descarga empieza solo al abrir el asistente.
  */
-export async function precargarModelo() {}
+export async function precargarModelo() {
+  if (typeof document === 'undefined' || cargado || carga) return;
+  if (Date.now() - ultimoUso() > DIAS_PRECARGA * 864e5) return;
+  // Unos segundos después, para no competir con la descarga del catálogo y el dibujo de la página
+  await new Promise((r) => setTimeout(r, 4000));
+  if (document.visibilityState === 'hidden' || cargado || carga) return;
+  const p = perfil();
+  const webllm = await import('@mlc-ai/web-llm');
+  const enCache = await Promise.all([p.f16, p.f32].map((m) => webllm.hasModelInCache(m).catch(() => false)));
+  if (!enCache.some(Boolean)) return;
+  await cargarMotor(() => undefined).catch(() => undefined);
+  if (!abiertas) programarLiberar();
+}
+
+/** En la web cada conversación ya empieza sin historial (vive en el chat, que se crea de nuevo). */
+export function nuevaConversacion() {}
 
 type Gpu = { requestAdapter: () => Promise<{ features: { has: (f: string) => boolean } } | null> };
 
@@ -70,8 +113,9 @@ class SinWebGpu extends Error {}
 
 // El modelo se carga una vez y se comparte entre las veces que se abre la hoja. La descarga queda en el
 // almacenamiento del navegador para las siguientes visitas
-let cargado: { motor: MLCEngine; perfil: Perfil } | null = null;
-let carga: Promise<{ motor: MLCEngine; perfil: Perfil }> | null = null;
+type Cargado = { motor: MLCEngineInterface; perfil: Perfil; worker?: Worker };
+let cargado: Cargado | null = null;
+let carga: Promise<Cargado> | null = null;
 let informar: (e: EstadoMotor) => void = () => undefined;
 /** Hojas del asistente abiertas y respuestas en curso: mientras haya alguna, el modelo no se suelta. */
 let abiertas = 0;
@@ -97,11 +141,18 @@ async function liberar() {
   if (!m) return;
   cargado = null;
   carga = null;
-  await m?.motor.unload().catch(() => undefined);
+  await m.motor.unload().catch(() => undefined);
+  // Cerrar el worker devuelve también la memoria que le quede
+  m.worker?.terminate();
 }
 
 function liberarSiNoSeUsa() {
   if (!generando && (document.visibilityState === 'hidden' || !abiertas)) void liberar();
+}
+
+function programarLiberar() {
+  clearTimeout(temporizador);
+  temporizador = setTimeout(liberarSiNoSeUsa, perfil().liberarTrasMs);
 }
 
 if (typeof document !== 'undefined') {
@@ -124,13 +175,25 @@ async function crearMotor() {
     const enCache = await webllm.hasModelInCache(modelo).catch(() => false);
     const avance = (progreso: number): EstadoMotor => (enCache ? { fase: 'cargando', progreso } : { fase: 'descargando', progreso });
     informar(avance(0));
+    const opciones = { initProgressCallback: (x: { progress: number }) => informar(avance(x.progress * 100)) };
+    let worker: Worker | undefined;
     try {
-      const motor = await webllm.CreateMLCEngine(modelo, { initProgressCallback: (x) => informar(avance(x.progress * 100)) });
+      let motor: MLCEngineInterface;
+      try {
+        worker = new Worker(new URL('./motor-ia.worker.ts', import.meta.url));
+        motor = await webllm.CreateWebWorkerMLCEngine(worker, modelo, opciones);
+      } catch (e) {
+        worker?.terminate();
+        worker = undefined;
+        // Un corte de red se reintenta abajo; si el worker no funciona en este navegador, el modelo corre en la página
+        if (esDeRed(e)) throw e;
+        motor = await webllm.CreateMLCEngine(modelo, opciones);
+      }
       // Ya con el nuevo listo, se borran los de versiones anteriores
       for (const viejo of ANTERIORES) {
         void webllm.hasModelInCache(viejo).then((hay) => (hay ? webllm.deleteModelAllInfoInCache(viejo) : undefined)).catch(() => undefined);
       }
-      return { motor, perfil: p };
+      return { motor, perfil: p, worker };
     } catch (e) {
       if (intento >= INTENTOS || !esDeRed(e)) throw e;
       await new Promise((r) => setTimeout(r, 2000 * intento));
@@ -149,6 +212,7 @@ export function useMotor(): Motor {
   useEffect(() => {
     abiertas++;
     clearTimeout(temporizador);
+    registrarUso();
     let vivo = true;
     if (!cargado) {
       cargarMotor((e) => vivo && setEstado(e))
@@ -163,8 +227,7 @@ export function useMotor(): Motor {
       // La carga sigue aunque se cierre la hoja; solo deja de avisar a esta. Si sigue cerrada, se suelta el modelo
       vivo = false;
       abiertas--;
-      clearTimeout(temporizador);
-      temporizador = setTimeout(liberarSiNoSeUsa, LIBERAR_TRAS_MS);
+      if (!abiertas) programarLiberar();
     };
   }, []);
 

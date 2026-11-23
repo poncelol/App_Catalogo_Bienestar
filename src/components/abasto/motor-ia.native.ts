@@ -4,14 +4,19 @@
  *
  * La librería trae código nativo: solo existe en la app instalada (build de EAS o de desarrollo), no en Expo Go.
  * Por eso se carga con require y solo si está disponible; si no, el resto de la app funciona y el asistente avisa.
+ * El modelo corre en un hilo aparte (worklet), así que la pantalla no se traba mientras responde.
  *
- * Para no ocupar memoria de más, el modelo solo está cargado mientras la hoja del asistente está abierta y la app
- * en primer plano: en segundo plano se suelta (si no, Android puede cerrar la app por falta de memoria).
+ * Memoria: hay una sola sesión del modelo para toda la app.
+ * - Si el asistente se usó en los últimos días, se carga al abrir la app (en espera), para que al abrirlo ya esté listo.
+ * - Se queda cargada mientras el asistente se use; con la hoja cerrada unos minutos, o con la app en segundo plano,
+ *   se suelta (si no, Android puede cerrar la app por falta de memoria). Volver a cargarla tarda unos segundos;
+ *   descargarla, solo la primera vez.
  */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Device from 'expo-device';
 import { getNetworkStateAsync, NetworkStateType } from 'expo-network';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import RNBlobUtil from 'react-native-blob-util';
 import type { LLMChatSession } from 'react-native-executorch';
@@ -52,28 +57,119 @@ const GENERACION = POCA_MEMORIA
   : { temperature: 0.1, topP: 0.1, topK: 50, repetitionPenalty: 1.05, maxNewTokens: RESPUESTA_MAX };
 /** Memoria de contexto que se supone mientras la sesión no la informa (la del modelo exportado suele ser mayor). */
 const CONTEXTO_INICIAL = 2048;
+/** Con la hoja del asistente cerrada este tiempo, se suelta el modelo. */
+const LIBERAR_TRAS_MS = 5 * 60 * 1000;
+/** Si el asistente se usó en estos días, el modelo se carga al abrir la app. */
+const DIAS_PRECARGA = 7;
+const CLAVE_USO = 'asistente.ultimoUso';
 
 export const INFO_MOTOR = { tamano: POCA_MEMORIA ? '520 MB' : '810 MB', lugar: 'tu teléfono' };
 
-/** Borra el archivo del modelo anterior, si sigue en el teléfono (la carpeta es la de react-native-executorch). */
+/** Carpeta donde react-native-executorch guarda lo descargado. */
+const CARPETA = `${Platform.OS === 'android' ? RNBlobUtil.fs.dirs.SDCardDir || RNBlobUtil.fs.dirs.DocumentDir : RNBlobUtil.fs.dirs.DocumentDir}/react-native-executorch`;
+const nombreArchivo = (ruta: string) => ruta.split('?')[0].split('/').pop() ?? '';
+
+/** Borra el archivo del modelo anterior, si sigue en el teléfono. */
 async function borrarAnterior() {
   if (!ANTERIOR) return;
-  const base = Platform.OS === 'android' ? RNBlobUtil.fs.dirs.SDCardDir || RNBlobUtil.fs.dirs.DocumentDir : RNBlobUtil.fs.dirs.DocumentDir;
-  const carpeta = `${base}/react-native-executorch`;
-  const archivos = await RNBlobUtil.fs.ls(carpeta).catch(() => [] as string[]);
-  await Promise.all(archivos.filter((a) => a.endsWith(`_${ANTERIOR}`)).map((a) => RNBlobUtil.fs.unlink(`${carpeta}/${a}`).catch(() => undefined)));
+  const archivos = await RNBlobUtil.fs.ls(CARPETA).catch(() => [] as string[]);
+  await Promise.all(archivos.filter((a) => a.endsWith(`_${ANTERIOR}`)).map((a) => RNBlobUtil.fs.unlink(`${CARPETA}/${a}`).catch(() => undefined)));
+}
+
+/** ¿El modelo ya está en el teléfono? (para cargarlo sin red, sin arrancar una descarga con datos móviles). */
+async function yaDescargado() {
+  if (!MODELO) return false;
+  const archivos = await RNBlobUtil.fs.ls(CARPETA).catch(() => [] as string[]);
+  return archivos.some((a) => a.endsWith(`_${nombreArchivo(MODELO.modelPath as string)}`));
+}
+
+// ──────────────────────────────────────────────────────────────
+// Una sola sesión del modelo para toda la app
+// ──────────────────────────────────────────────────────────────
+
+let sesion: LLMChatSession | null = null;
+let creando: Promise<LLMChatSession> | null = null;
+/** Respuesta en curso: la sesión no se suelta mientras escribe (seguiría usando memoria ya liberada). */
+let respondiendo: Promise<unknown> | null = null;
+let recurso: Modelo | null = null;
+let abiertas = 0;
+let temporizador: ReturnType<typeof setTimeout> | undefined;
+const avisos = new Set<() => void>();
+const avisar = () => avisos.forEach((f) => f());
+/** Se pidió una conversación nueva: la siguiente pregunta empieza con la sesión sin las preguntas anteriores. */
+let olvidar = false;
+
+/** «Nueva conversación»: el modelo olvida las preguntas anteriores (la sesión las guarda en su memoria). */
+export function nuevaConversacion() {
+  olvidar = true;
+}
+
+function nuevaSesion(r: Modelo) {
+  return rne!.createLLMChatSession(r, {
+    initialMessages: [{ role: 'system', content: instrucciones() }],
+    generationConfig: GENERACION,
+  });
+}
+
+function obtenerSesion(r: Modelo): Promise<LLMChatSession> {
+  recurso = r;
+  if (sesion) return Promise.resolve(sesion);
+  creando ??= nuevaSesion(r).then(
+    (s) => {
+      sesion = s;
+      creando = null;
+      avisar();
+      return s;
+    },
+    (e: unknown) => {
+      creando = null;
+      throw e;
+    },
+  );
+  return creando;
+}
+
+/** Suelta el modelo de la memoria (si no está respondiendo); la siguiente vez se vuelve a cargar del teléfono. */
+function liberar() {
+  if (respondiendo || !sesion) return;
+  const s = sesion;
+  sesion = null;
+  s.dispose();
+  avisar();
+}
+
+function programarLiberar() {
+  clearTimeout(temporizador);
+  temporizador = setTimeout(() => !abiertas && liberar(), LIBERAR_TRAS_MS);
+}
+
+if (rne) {
+  AppState.addEventListener('change', (a) => {
+    if (a === 'background') liberar();
+    // Al volver con la hoja abierta, se carga otra vez
+    else if (a === 'active' && abiertas && recurso) obtenerSesion(recurso).catch(() => undefined);
+  });
 }
 
 /**
- * Descarga el modelo en segundo plano al abrir la app, solo con Wi-Fi o cable (no gasta datos móviles), para que
- * el asistente esté listo cuando se abra. Si ya está descargado no hace nada; si se interrumpe, la siguiente vez
- * continúa donde se quedó. Si el asistente se abre a media descarga, se une a esta en vez de empezar otra.
+ * Al abrir la app: con Wi-Fi o cable descarga el modelo en segundo plano (no gasta datos móviles), para que el
+ * asistente esté listo cuando se abra; si se interrumpe, la siguiente vez continúa donde se quedó. Y si el asistente
+ * se usó en los últimos días, lo deja cargado en espera.
  */
 export async function precargarModelo() {
   if (!rne || !MODELO) return;
-  const red = await getNetworkStateAsync().catch(() => null);
-  if (!red?.isConnected || (red.type !== NetworkStateType.WIFI && red.type !== NetworkStateType.ETHERNET)) return;
-  if (await rne.download(MODELO).then(() => true, () => false)) await borrarAnterior();
+  if (!(await yaDescargado())) {
+    const red = await getNetworkStateAsync().catch(() => null);
+    if (!red?.isConnected || (red.type !== NetworkStateType.WIFI && red.type !== NetworkStateType.ETHERNET)) return;
+  }
+  const r = await rne.download(MODELO).catch(() => null);
+  if (!r) return;
+  await borrarAnterior();
+  const ultimo = Number(await AsyncStorage.getItem(CLAVE_USO).catch(() => null)) || 0;
+  if (Date.now() - ultimo < DIAS_PRECARGA * 864e5 && AppState.currentState === 'active') {
+    await obtenerSesion(r).catch(() => undefined);
+    if (!abiertas) programarLiberar();
+  }
 }
 
 /** Sin la librería (Expo Go): el asistente explica que necesita la app instalada. */
@@ -92,52 +188,34 @@ function useMotorEnTelefono(): Motor {
   const lib = rne!;
   const modelo = MODELO!;
   const { resource, downloadProgress, downloadError } = lib.useResourceDownload(modelo);
-  const sesion = useRef<LLMChatSession | null>(null);
-  // Respuesta en curso: la sesión no se libera mientras escribe (el modelo seguiría usando memoria ya liberada)
-  const enCurso = useRef<Promise<unknown> | null>(null);
-  const [listo, setListo] = useState(false);
+  const [listo, setListo] = useState(() => !!sesion);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
-  const [contexto, setContexto] = useState(CONTEXTO_INICIAL);
+  const [contexto, setContexto] = useState(() => sesion?.getKVCacheState().maxContextLen ?? CONTEXTO_INICIAL);
+
+  // Hoja abierta: el modelo no se suelta mientras esté abierta (salvo en segundo plano)
+  useEffect(() => {
+    abiertas++;
+    clearTimeout(temporizador);
+    void AsyncStorage.setItem(CLAVE_USO, String(Date.now())).catch(() => undefined);
+    const alCambiar = () => {
+      setListo(!!sesion);
+      if (sesion) setContexto(sesion.getKVCacheState().maxContextLen);
+    };
+    avisos.add(alCambiar);
+    return () => {
+      avisos.delete(alCambiar);
+      abiertas--;
+      if (!abiertas) programarLiberar();
+    };
+  }, []);
 
   useEffect(() => {
     if (!resource) return;
     let vivo = true;
     void borrarAnterior();
-    const abrir = () => {
-      nuevaSesion(resource)
-        .then((s) => {
-          if (vivo && !sesion.current && AppState.currentState !== 'background') {
-            sesion.current = s;
-            setContexto(s.getKVCacheState().maxContextLen);
-            setListo(true);
-          } else {
-            s.dispose();
-          }
-        })
-        .catch((e: unknown) => vivo && setErrorCarga(e instanceof Error ? e.message : String(e)));
-    };
-    const cerrar = () => {
-      const s = sesion.current;
-      sesion.current = null;
-      if (!s) return;
-      // A media respuesta: se detiene y se libera cuando termine
-      s.stop();
-      (enCurso.current ?? Promise.resolve()).catch(() => undefined).finally(() => s.dispose());
-    };
-    abrir();
-    // En segundo plano se suelta el modelo (si no está respondiendo); al volver se carga otra vez del teléfono
-    const cambio = AppState.addEventListener('change', (a) => {
-      if (a === 'background' && sesion.current && !enCurso.current) {
-        cerrar();
-        setListo(false);
-      } else if (a === 'active' && !sesion.current) {
-        abrir();
-      }
-    });
+    obtenerSesion(resource).catch((e: unknown) => vivo && setErrorCarga(e instanceof Error ? e.message : String(e)));
     return () => {
       vivo = false;
-      cambio.remove();
-      cerrar();
     };
   }, [resource]);
 
@@ -151,32 +229,43 @@ function useMotorEnTelefono(): Motor {
         : listo ? { fase: 'listo' } : { fase: 'cargando' };
 
   const enviar: Motor['enviar'] = async (mensaje, onCrudo) => {
-    if (!sesion.current || !resource) throw new Error('El asistente todavía no está listo.');
+    if (!resource) throw new Error('El asistente todavía no está listo.');
+    // Si se soltó (segundo plano, reintento), se vuelve a cargar aquí
+    let s = await obtenerSesion(resource);
     const reiniciar = async () => {
-      sesion.current?.dispose();
-      sesion.current = null;
-      sesion.current = await nuevaSesion(resource);
+      sesion = null;
+      s.dispose();
+      s = await obtenerSesion(resource);
     };
     // Cada pregunta lleva sus datos: si lo que queda de memoria no alcanza para ellos y la respuesta, se empieza
     // una sesión nueva (las preguntas anteriores ya no hacen falta: la app guarda el tema de la conversación)
-    if (sesion.current.getKVCacheState().remainingTokens < Math.ceil(mensaje.length / 2.6) + RESPUESTA_MAX) await reiniciar();
+    // (y tras «Nueva conversación», si la sesión ya traía preguntas)
+    const conHistorial = s.getHistory().length > 1;
+    if ((olvidar && conHistorial) || s.getKVCacheState().remainingTokens < Math.ceil(mensaje.length / 2.6) + RESPUESTA_MAX) await reiniciar();
+    olvidar = false;
     const preguntar = () => {
       let crudo = '';
-      const p = sesion.current!.sendMessage(mensaje, (token) => {
+      const p = s.sendMessage(mensaje, (token) => {
         crudo += token;
         onCrudo(crudo);
       });
-      enCurso.current = p;
+      respondiendo = p;
       return p.finally(() => {
-        enCurso.current = null;
+        respondiendo = null;
+        // Si la app pasó a segundo plano mientras respondía, se suelta al terminar
+        if (AppState.currentState === 'background') liberar();
       });
     };
     let turno;
     try {
       turno = await preguntar();
     } catch (e) {
-      // Si aun así no cupo en la memoria de contexto, se intenta una vez con una sesión nueva
-      if (!/context|capacity|exceed|too long|kv/i.test(e instanceof Error ? e.message : String(e))) throw e;
+      // Si aun así no cupo en la memoria de contexto, se intenta una vez con una sesión nueva. Con otro error, la
+      // sesión se suelta: el reintento del chat empieza con una limpia
+      if (!/context|capacity|exceed|too long|kv/i.test(e instanceof Error ? e.message : String(e))) {
+        liberar();
+        throw e;
+      }
       await reiniciar();
       turno = await preguntar();
     }
@@ -186,15 +275,8 @@ function useMotorEnTelefono(): Motor {
   };
 
   // Lo que ocupan las instrucciones ya está contado en presupuestoDatos
-  return { estado, enviar, detener: () => sesion.current?.stop(), contexto };
+  return { estado, enviar, detener: () => sesion?.stop(), contexto };
 }
 
 // Se decide una sola vez al cargar la app, así el hook siempre llama a los mismos hooks
 export const useMotor: () => Motor = rne ? useMotorEnTelefono : useMotorNoDisponible;
-
-function nuevaSesion(resource: Modelo) {
-  return rne!.createLLMChatSession(resource, {
-    initialMessages: [{ role: 'system', content: instrucciones() }],
-    generationConfig: GENERACION,
-  });
-}

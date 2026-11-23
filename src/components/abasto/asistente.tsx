@@ -7,7 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Entrada } from '@/components/abasto/animaciones';
 import { ArticuloDetalle } from '@/components/abasto/articulo-detalle';
 import { ChatAsistente, type Mensaje } from '@/components/abasto/asistente-chat';
-import { INFO_MOTOR, precargarModelo } from '@/components/abasto/motor-ia';
+import { INFO_MOTOR, nuevaConversacion, precargarModelo } from '@/components/abasto/motor-ia';
 import { Icono, s as ui } from '@/components/abasto/ui';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import type { Articulo } from '@/data/abasto';
@@ -56,6 +56,7 @@ export function AsistenteProvider({ children }: { children: ReactNode }) {
   };
 
   const nueva = () => {
+    nuevaConversacion();
     setMensajes([]);
     setConversacion((n) => n + 1);
   };
