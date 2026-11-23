@@ -7,7 +7,7 @@
  * probarlo y usarlo en cualquier plataforma.
  */
 import {
-  REGIONES, SIGLAS, contar, diasHasta, diasVigencia, dinero, fechaCorta, hojasNegociacion, hoyISO, nArt, sinAcentos,
+  REGIONES, SIGLAS, contar, diasHasta, diasVigencia, dinero, entero, fechaCorta, hojasNegociacion, hoyISO, nArt, sinAcentos,
   type Articulo, type Hoja,
 } from '@/data/abasto';
 import { filtrarArticulos, palabras, type Orden } from '@/data/busqueda';
@@ -477,6 +477,16 @@ export type Grupo = { clave: string; nombre: string; articulos: number; detalle?
 export type Consulta = {
   /** Datos del catálogo para el modelo (vacío si la pregunta no trata del catálogo). */
   datos: string;
+  /**
+   * La respuesta ya redactada, para las listas y cuentas que se contestan sin el modelo (ver respuestaDirecta): lo
+   * importante primero, en negritas, unas pocas viñetas y qué hacer después.
+   */
+  respuesta?: string;
+  /**
+   * El porqué, calculado por la app («por litro conviene más…», «Patrona incluye también El Faro»). Va después de
+   * la respuesta del modelo: así la explicación siempre es exacta, aunque el modelo redacte mal.
+   */
+  nota?: string;
   /** Tarjetas, según lo que se pidió. */
   articulos: Articulo[];
   proveedores: Grupo[];
@@ -790,10 +800,12 @@ const DETALLE = [
  * siempre traen todo lo encontrado.
  */
 export function consultarCatalogo(i: Intencion, arts: Articulo[], presupuesto = Infinity, maxArticulos = MAX_ARTICULOS): Consulta {
-  // La comparación se calcula una vez, con todos los artículos de cada lado
-  const lados = i.partes?.length && i.comparar
-    ? comparacion(i.partes, i.partes.map((p) => consultarParte({ ...p, pide: 'articulos' }, arts, 1, false).articulos))
-    : '';
+  // La comparación se calcula una vez, con todos los artículos de cada lado y el mejor precio de cada uno
+  const conjuntos = i.partes?.length && i.comparar
+    ? i.partes.map((p) => conMejorPrecio(consultarParte({ ...p, pide: 'articulos' }, arts, 1, false).articulos, arts, p))
+    : null;
+  const lados = conjuntos ? comparacion(i.partes!, conjuntos) : '';
+  const notaComparar = conjuntos ? notaComparacion(i.partes!, conjuntos) : undefined;
   let consulta: Consulta | null = null;
   for (const [limite, resumen] of DETALLE) {
     consulta = armar(i, arts, Math.min(limite, maxArticulos), resumen, lados);
@@ -805,7 +817,11 @@ export function consultarCatalogo(i: Intencion, arts: Articulo[], presupuesto = 
   // El aviso va primero: si hubiera que recortar, se corta el final
   const datos = [aviso, lados, consulta!.datos].filter(Boolean).join('\n\n');
   // Ni con lo mínimo cabe (muchos temas en un teléfono con poca memoria): se corta en un renglón completo
-  return { ...consulta!, datos: datos.length > presupuesto ? recortar(datos, presupuesto) : datos };
+  return {
+    ...consulta!,
+    datos: datos.length > presupuesto ? recortar(datos, presupuesto) : datos,
+    ...(notaComparar ? { nota: notaComparar } : {}),
+  };
 }
 
 function recortar(texto: string, max: number) {
@@ -823,6 +839,11 @@ function armar(i: Intencion, arts: Articulo[], limite: number, resumen: boolean,
     .join('\n\n');
   return {
     datos,
+    // Las respuestas redactadas de cada parte, si todas la tienen («¿quién vende aceite y frijol?»)
+    // («Toca un proveedor abajo…» solo al final, no en cada parte)
+    respuesta: resultados.every((r) => r.respuesta)
+      ? resultados.map((r, k) => (k < resultados.length - 1 ? r.respuesta!.replace(/\n(Toca .*|Abajo están .*)$/, '') : r.respuesta)).join('\n\n')
+      : undefined,
     // Las tarjetas se intercalan para que se vean todas las partes
     articulos: unicos(intercalar(resultados.map((r) => r.articulos)), (a) => a.artId),
     proveedores: unicos(intercalar(resultados.map((r) => r.proveedores)), (g) => g.clave).slice(0, 6),
@@ -858,7 +879,7 @@ function comparacion(partes: Intencion[], conjuntos: Articulo[][]) {
   const renglones = lados.map((l) => !l.n
     ? `- ${l.nombre}: no hay artículos.`
     : `- ${l.nombre}: ${l.n} ${l.n === 1 ? 'artículo' : 'artículos'}; promedio ${dinero(l.promedio)} por pieza; `
-      + (l.barato ? `el más barato es ${l.barato.articulo} (${l.barato.marca}, ${l.barato.presentacion}) a ${dinero(l.barato.costoUnit)}.` : 'sin precio.'));
+      + (l.barato ? `el más barato es ${l.barato.articulo} (${l.barato.marca}, ${l.barato.presentacion}) a ${dinero(l.barato.costoUnit)}${deOferta(l.barato)}.` : 'sin precio.'));
   const conPrecio = lados.filter((l) => l.barato && l.promedio !== null);
   const conclusion: string[] = [];
   // Si los lados se miden igual (litros o kilos), se comparan por litro o kilo: es lo justo con presentaciones
@@ -872,10 +893,10 @@ function comparacion(partes: Intencion[], conjuntos: Articulo[][]) {
     renglones.splice(0, renglones.length, ...porLado.map((l) =>
       `- ${l.nombre}: ${l.n} ${l.n === 1 ? 'artículo' : 'artículos'}; promedio ${dinero(l.medio)} el ${unidad}; `
       + `el que sale más barato es ${l.mejor.a.articulo} (${l.mejor.a.marca}, ${l.mejor.a.presentacion}) a ${dinero(l.mejor.precio)} el ${unidad} `
-      + `(${dinero(l.mejor.a.costoUnit)} por pieza).`));
+      + `(${dinero(l.mejor.a.costoUnit)} por pieza${deOferta(l.mejor.a)}).`));
     const menor = porLado.reduce((x, y) => (y.mejor.precio < x.mejor.precio ? y : x));
     const prom = porLado.reduce((x, y) => (y.medio < x.medio ? y : x));
-    conclusion.push(`Comparando por ${unidad}, lo más barato es de ${menor.nombre}: ${menor.mejor.a.articulo} a ${dinero(menor.mejor.precio)} el ${unidad}.`);
+    conclusion.push(`Comparando por ${unidad}, lo más barato es de ${menor.nombre}: ${menor.mejor.a.articulo} a ${dinero(menor.mejor.precio)} el ${unidad}${deOferta(menor.mejor.a)}.`);
     conclusion.push(`En promedio por ${unidad} es más barato ${prom.nombre} (${dinero(prom.medio)} el ${unidad}).`);
   } else if (conPrecio.length >= 2) {
     const menor = conPrecio.reduce((x, y) => (y.barato!.costoUnit < x.barato!.costoUnit ? y : x));
@@ -889,6 +910,46 @@ function comparacion(partes: Intencion[], conjuntos: Articulo[][]) {
     'Comparación:', ...renglones,
     conclusion.length ? `Conclusión: ${conclusion.join(' ')}` : '',
   ].filter(Boolean).join('\n');
+}
+
+const deOferta = (a: Articulo) => (a.inventario === 'Oferta' ? ', precio de Oferta' : '');
+
+/**
+ * Un artículo puede estar en varias hojas (p. ej. PAR y Oferta) con precios distintos. Para comparar se toma su mejor
+ * precio, de cualquier hoja que cumpla lo pedido (si se pidió un tipo de inventario o una región, solo de esas).
+ */
+function conMejorPrecio(arts: Articulo[], todos: Articulo[], i: Intencion): Articulo[] {
+  if (i.inventario) return arts;
+  const ids = new Set(arts.map((a) => a.artId));
+  const mejor = new Map<string, Articulo>();
+  for (const f of todos) {
+    if (!ids.has(f.artId) || f.costoUnit === null) continue;
+    if (i.region && f.alcance !== 'Nacional' && !f.regiones.includes(i.region)) continue;
+    const m = mejor.get(f.artId);
+    if (!m || f.costoUnit < m.costoUnit!) mejor.set(f.artId, f);
+  }
+  return arts.map((a) => mejor.get(a.artId) ?? a);
+}
+
+/** El porqué de una comparación: qué incluye cada lado y que se usó el mejor precio de cada artículo. */
+function notaComparacion(partes: Intencion[], conjuntos: Articulo[][]): string | undefined {
+  const notas: string[] = [];
+  partes.forEach((p, k) => {
+    // «Patrona» se entendió como el proveedor Industrial Patrona: también trae sus otras marcas (El Faro)
+    if (!p.proveedor) return;
+    const marcas = [...new Set(conjuntos[k].map((a) => a.marca))];
+    const propias = palabras(p.proveedor.nombre);
+    const otras = marcas.filter((m) => m !== p.marca && !palabras(m).some((w) => propias.includes(w)));
+    if (otras.length) {
+      notas.push(`💡 Del lado de **${p.marca ?? p.proveedor.nombre}** entra todo lo que vende ${p.proveedor.nombre}, `
+        + `también ${otras.length === 1 ? 'la marca' : 'las marcas'} ${enumerar(otras.slice(0, 3).map((m) => `**${m}**`))}. `
+        + 'Si quieres solo una marca, pregunta por ejemplo «aceites marca …».');
+    }
+  });
+  if (conjuntos.some((c) => c.some((a) => a.inventario === 'Oferta'))) {
+    notas.push('Se comparó con el mejor precio de cada artículo, sea de PAR o de Oferta.');
+  }
+  return notas.join('\n') || undefined;
 }
 
 function excluido(a: Articulo, ex: Intencion['excluir']) {
@@ -916,7 +977,7 @@ function consultarParte(i: Intencion, todos: Articulo[], limite: number, resumen
     ultimasFilas = filas ?? a;
   }, () => todos);
   const vacia: Consulta = { datos: '', articulos: [], proveedores: [], productos: [], hojas: [], inventarios: [], regiones: [] };
-  if (i.pide === 'resumen') return { ...vacia, datos: resumenH.execute({}) };
+  if (i.pide === 'resumen') return { ...vacia, datos: resumenH.execute({}), respuesta: resumenRedactado(arts) };
 
   const filtros = {
     inventario: i.inventario, region: i.region, orden: i.orden, vence_en_dias: i.vence, vencidos: i.vencidas,
@@ -997,9 +1058,19 @@ function consultarParte(i: Intencion, todos: Articulo[], limite: number, resumen
       extra,
     ].filter(Boolean).join('\n');
     const tarjetas = grupos.slice(0, 8).map((g) => ({ clave: g.clave, nombre: g.etiqueta, articulos: g.valor }));
+    const uno = { proveedores: 'proveedor', productos: 'producto', marcas: 'marca' }[i.pide];
+    const respuesta = [
+      `**Hay ${cantidad(grupos.length, uno, nombre)}${tema ? (i.pide === 'proveedores' ? ` que venden ${sinComillas(tema)}` : ` con ${articulosDe(tema)}`) : ' en el catálogo'}.**`,
+      grupos.length > 1 ? (i.orden ? `Del de precio más ${i.orden === 'menor' ? 'bajo' : 'alto'}:` : 'Los que tienen más artículos:') : '',
+      ...grupos.slice(0, 3).map((g) => `• **${g.etiqueta}**: ${cantidad(g.valor, 'artículo')}, ${rango(base.filter((a) => deGrupo(a) === g.clave))}`),
+      grupos.length > 3 ? `Y ${cantidad(grupos.length - 3, uno, nombre)} más.` : '',
+      notaRango(base) ? `\n${notaRango(base)}` : '',
+      i.pide === 'proveedores' ? 'Toca un proveedor abajo para ver sus artículos.' : i.pide === 'productos' ? 'Toca un producto abajo para ver su ficha.' : 'Abajo están sus artículos.',
+    ].filter(Boolean).join('\n');
     return {
       ...vacia,
       datos,
+      respuesta,
       // Si se nombró al proveedor («¿qué productos vende Cuétara?»), también su tarjeta
       proveedores: i.pide === 'proveedores' ? tarjetas : i.proveedor ? tarjetasProveedores(base, i.proveedor.cve) : [],
       productos: i.pide === 'productos' ? tarjetas : [],
@@ -1032,6 +1103,7 @@ function consultarParte(i: Intencion, todos: Articulo[], limite: number, resumen
   return {
     ...vacia,
     datos: partes.join('\n\n'),
+    nota: notaArticulos(articulos, conFilas, i),
     articulos,
     proveedores: tarjetasProveedores(i.proveedor ? arts : articulos, i.proveedor?.cve),
     hojas: hoja ? [tarjetaHoja(hoja)] : [],
@@ -1042,6 +1114,89 @@ function consultarParte(i: Intencion, todos: Articulo[], limite: number, resumen
 
 /** «1 proveedor», «3 proveedores». */
 const cuenta = (n: number, uno: string, varios = /[aeiou]$/.test(uno) ? `${uno}s` : `${uno}es`) => `${n} ${n === 1 ? uno : varios}`;
+
+// ──────────────────────────────────────────────────────────────
+// Respuestas redactadas por la app (listas y cuentas) y el porqué de las del modelo
+// ──────────────────────────────────────────────────────────────
+
+/** «16 proveedores», «1,453 artículos»: con separador de miles. */
+const cantidad = (n: number, uno: string, varios = /[aeiou]$/.test(uno) ? `${uno}s` : `${uno}es`) => `${entero(n)} ${n === 1 ? uno : varios}`;
+
+/** «a, b y c». */
+const enumerar = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}`);
+
+/** El tema para una frase: «Harinas» → harinas (las comillas son para el modelo, no para la persona). */
+const sinComillas = (tema: string) => tema.replace(/«([^»]+)»/g, (_, t: string) => t.toLowerCase());
+
+/** «artículos de harinas», «artículos en la región Sureste», «artículos que vencen en 30 días o menos». */
+const articulosDe = (tema: string) => `artículos ${tema.startsWith('«') ? 'de ' : ''}${sinComillas(tema)}`;
+
+/**
+ * Si los precios van de muy poco a mucho (10 veces o más) y hay presentaciones distintas, por qué: no es que uno
+ * sea caro, es que se vende en bultos más grandes.
+ */
+function notaRango(arts: Articulo[]): string | undefined {
+  const costos = arts.map((a) => a.costoUnit).filter((c): c is number => c !== null);
+  if (costos.length < 2) return undefined;
+  const [min, max] = [Math.min(...costos), Math.max(...costos)];
+  if (max < min * 10 || new Set(arts.map((a) => a.presentacion)).size < 2) return undefined;
+  return `💡 Los precios van de **${dinero(min)}** a **${dinero(max)}** por pieza porque hay presentaciones de distinto tamaño; `
+    + 'para comparar, fíjate en la presentación o pregunta por el precio por kilo o por litro.';
+}
+
+/**
+ * El porqué de una búsqueda de artículos: si el más barato por pieza no es el que más conviene por litro o kilo, y
+ * cuántos están también en Oferta con otro precio.
+ */
+function notaArticulos(arts: Articulo[], filas: Articulo[], i: Intencion): string | undefined {
+  const notas: string[] = [];
+  const con = arts.filter((a): a is Articulo & { costoUnit: number } => a.costoUnit !== null);
+  if (con.length >= 2) {
+    const barato = con.reduce((x, y) => (y.costoUnit < x.costoUnit ? y : x));
+    const pmBarato = porMedida(barato);
+    const medidos = pmBarato ? con.map((a) => ({ a, pm: porMedida(a) })).filter((m) => m.pm?.unidad === pmBarato.unidad) : [];
+    const mejor = medidos.length >= 2 ? medidos.reduce((x, y) => (y.pm!.precio < x.pm!.precio ? y : x)) : null;
+    // (solo si la diferencia se nota: 5 % o más)
+    if (pmBarato && mejor && mejor.a.artId !== barato.artId && mejor.pm!.precio <= pmBarato.precio * 0.95) {
+      const u = pmBarato.unidad;
+      notas.push(`💡 Por pieza el más barato es **${barato.articulo}** (${barato.presentacion}) a ${dinero(barato.costoUnit)}, pero por ${u} `
+        + `conviene más **${mejor.a.articulo}** (${mejor.a.presentacion}): ${dinero(mejor.pm!.precio)} el ${u}, contra ${dinero(pmBarato.precio)} el ${u}. `
+        + 'Las presentaciones son de distinto tamaño, por eso conviene comparar por ' + u + '.');
+    }
+  }
+  // (si ya se pidió un tipo de inventario, no aplica)
+  if (!i.inventario) {
+    const ids = new Set(arts.map((a) => a.artId));
+    const tipos = new Map<string, Set<string>>();
+    for (const f of filas) if (ids.has(f.artId)) (tipos.get(f.artId) ?? tipos.set(f.artId, new Set()).get(f.artId)!).add(f.inventario);
+    const enAmbos = [...tipos.values()].filter((t) => t.has('Oferta') && t.size > 1).length;
+    if (enAmbos) notas.push(`${enAmbos === 1 ? 'Uno de estos artículos también está' : `${entero(enAmbos)} de estos artículos también están`} en **Oferta**, con otro precio.`);
+  }
+  return notas.join('\n') || undefined;
+}
+
+/** Cifras generales del catálogo, redactadas. */
+function resumenRedactado(arts: Articulo[]): string {
+  const hoy = hoyISO();
+  const dias = arts.map((a) => diasVigencia(a, hoy));
+  const vencidos = nArt(arts.filter((_, k) => dias[k] !== null && dias[k]! < 0));
+  const pronto = nArt(arts.filter((_, k) => dias[k] !== null && dias[k]! >= 0 && dias[k]! <= 30));
+  const total = nArt(arts);
+  const tipos = contar(arts, (a) => a.inventario);
+  const productos = contar(arts, (a) => a.producto).slice(0, 3).map((p) => `${p.etiqueta.toLowerCase()} (${entero(p.valor)})`);
+  const alertas = [vencidos && `**${cantidad(vencidos, 'artículo')} ya ${vencidos === 1 ? 'venció' : 'vencieron'}**`,
+    pronto && `**${cantidad(pronto, 'artículo')} ${pronto === 1 ? 'vence' : 'vencen'} en los próximos 30 días**`].filter(Boolean) as string[];
+  return [
+    `**El catálogo tiene ${cantidad(total, 'artículo')}** de ${cantidad(new Set(arts.map((a) => a.cve)).size, 'proveedor')}, `
+      + `en ${cantidad(new Set(arts.map((a) => a.prod)).size, 'producto')} y ${cantidad(new Set(arts.map((a) => a.marca)).size, 'marca')}.`,
+    `• Por tipo de inventario: ${enumerar(tipos.map((c) => `**${c.etiqueta}** ${entero(c.valor)}`))}.`,
+    `• Lo que más hay: ${enumerar(productos)}.`,
+    alertas.length ? `• ⚠️ ${enumerar(alertas)}.` : '',
+    tipos.reduce((s, c) => s + c.valor, 0) > total
+      ? '\n💡 Un artículo puede estar en más de un tipo de inventario (por ejemplo, en PAR y en Oferta, con otro precio); por eso esas cifras suman más que el total.'
+      : '',
+  ].filter(Boolean).join('\n');
+}
 
 /** Cuándo vence una hoja, en palabras. */
 function cuandoVence(h: Hoja) {
@@ -1062,7 +1217,7 @@ const tarjetaHoja = (h: Hoja): Grupo => ({
 });
 
 /** Hojas de negociación de unos artículos: las que vencen primero si se preguntó por vigencia; si no, las más grandes. */
-function porHoja(base: Articulo[], i: Intencion, tema: string, n: number): Pick<Consulta, 'datos' | 'hojas'> {
+function porHoja(base: Articulo[], i: Intencion, tema: string, n: number): Pick<Consulta, 'datos' | 'respuesta' | 'hojas'> {
   const hojas = hojasNegociacion(base);
   const dias = (h: Hoja) => diasHasta(h.vigencia) ?? Infinity;
   hojas.sort(i.vence !== undefined || i.vencidas ? (x, y) => dias(x) - dias(y) : (x, y) => y.articulos - x.articulos);
@@ -1076,12 +1231,20 @@ function porHoja(base: Articulo[], i: Intencion, tema: string, n: number): Pick<
       `Hojas por tipo de inventario: ${lista(tipos, 8)}.`,
       ...hojas.slice(0, n).map((h) => `- Hoja ${h.clave}: ${renglonHoja(h)}`),
     ].join('\n'),
+    respuesta: [
+      `**Hay ${cantidad(hojas.length, 'hoja de negociación', 'hojas de negociación')}${tema ? ` con ${articulosDe(tema)}` : ' en el catálogo'}.**`,
+      hojas.length > 1 ? (i.vence !== undefined || i.vencidas ? 'Las que vencen primero:' : 'Las que tienen más artículos:') : '',
+      ...hojas.slice(0, 3).map((h) => `• **Hoja ${h.clave}** de ${h.proveedor}: ${cantidad(h.articulos, 'artículo')}, ${h.inventario}, ${cuandoVence(h)}.`),
+      hojas.length > 3 ? `Y ${cantidad(hojas.length - 3, 'hoja', 'hojas')} más.` : '',
+      '\n💡 Una hoja de negociación es el acuerdo con un proveedor: fija los artículos, sus precios, el tipo de inventario, dónde se surten y hasta cuándo.',
+      'Toca una hoja abajo para ver sus artículos.',
+    ].filter(Boolean).join('\n'),
     hojas: hojas.slice(0, 8).map(tarjetaHoja),
   };
 }
 
 /** Tipos de inventario (PAR, Oferta y los demás) con sus artículos, hojas y proveedores. */
-function porInventario(base: Articulo[], tema: string): Pick<Consulta, 'datos' | 'inventarios'> {
+function porInventario(base: Articulo[], tema: string): Pick<Consulta, 'datos' | 'respuesta' | 'inventarios'> {
   const tipos = contar(base, (a) => a.inventario).map((c) => {
     const suyos = base.filter((a) => a.inventario === c.clave);
     return {
@@ -1097,6 +1260,17 @@ function porInventario(base: Articulo[], tema: string): Pick<Consulta, 'datos' |
       ...tipos.map((c) => `- ${c.etiqueta}: ${cuenta(c.valor, 'artículo')}, ${cuenta(c.hojas, 'hoja de negociación', 'hojas de negociación')}, `
         + `${cuenta(c.proveedores, 'proveedor')}, costo unitario ${rango(c.suyos)}.`),
     ].join('\n'),
+    respuesta: [
+      `**Hay ${cantidad(tipos.length, 'tipo de inventario', 'tipos de inventario')}${tema ? ` con ${articulosDe(tema)}` : ' en el catálogo'}**, `
+        + `con ${cantidad(nArt(base), 'artículo')} en total.`,
+      ...tipos.slice(0, 5).map((c) => `• **${c.etiqueta}**: ${cantidad(c.valor, 'artículo')} de ${cantidad(c.proveedores, 'proveedor')}, `
+        + `en ${cantidad(c.hojas, 'hoja', 'hojas')}.`),
+      tipos.length > 5 ? `Y ${cantidad(tipos.length - 5, 'tipo', 'tipos')} más.` : '',
+      tipos.reduce((s, c) => s + c.valor, 0) > nArt(base)
+        ? '\n💡 Un artículo puede estar en más de un tipo (por ejemplo, en PAR y en Oferta, con otro precio); por eso la suma es mayor que el total.'
+        : '',
+      'Toca un tipo abajo para ver sus artículos.',
+    ].filter(Boolean).join('\n'),
     inventarios: tipos.map((c) => ({
       clave: c.clave, nombre: c.etiqueta, articulos: c.valor,
       detalle: `${cuenta(c.hojas, 'hoja')} · ${cuenta(c.proveedores, 'proveedor')}`,
@@ -1105,7 +1279,7 @@ function porInventario(base: Articulo[], tema: string): Pick<Consulta, 'datos' |
 }
 
 /** Gerencias regionales a las que llegan unos artículos (los de cobertura nacional llegan a todas). */
-function porRegion(base: Articulo[], tema: string): Pick<Consulta, 'datos' | 'regiones'> {
+function porRegion(base: Articulo[], tema: string): Pick<Consulta, 'datos' | 'respuesta' | 'regiones'> {
   const nacionales = nArt(base.filter((a) => a.alcance === 'Nacional'));
   const regiones = SIGLAS.map((s) => {
     const suyos = base.filter((a) => a.regiones.includes(s));
@@ -1113,13 +1287,26 @@ function porRegion(base: Articulo[], tema: string): Pick<Consulta, 'datos' | 're
       s, n: nArt(suyos), solo: nArt(suyos.filter((a) => a.alcance !== 'Nacional')), proveedores: new Set(suyos.map((a) => a.cve)).size,
     };
   }).filter((r) => r.n).sort((x, y) => y.n - x.n || x.s.localeCompare(y.s));
-  if (!regiones.length) return { datos: `Los artículos ${tema} no tienen cobertura registrada.`, regiones: [] };
+  if (!regiones.length) {
+    const sin = `Los artículos ${tema} no tienen cobertura registrada.`;
+    return { datos: sin, respuesta: sin, regiones: [] };
+  }
   return {
     datos: [
       `${regiones.length} de ${SIGLAS.length} gerencias regionales reciben artículos${tema ? ` ${tema}` : ' del catálogo'}. `
         + `Son ${nArt(base)} artículos; ${nacionales} tienen cobertura nacional y llegan a todas.`,
       ...regiones.map((r) => `- ${REGIONES[r.s].nombre} (${r.s}): ${cuenta(r.n, 'artículo')} (${r.solo} solo regionales), ${cuenta(r.proveedores, 'proveedor')}.`),
     ].join('\n'),
+    respuesta: [
+      `**${regiones.length === SIGLAS.length ? `Las ${SIGLAS.length}` : `${regiones.length} de ${SIGLAS.length}`} gerencias regionales reciben `
+        + `${tema ? articulosDe(tema) : 'artículos del catálogo'}.**`,
+      regiones.length > 1 ? 'Las que reciben más:' : '',
+      ...regiones.slice(0, 4).map((r) => `• **${REGIONES[r.s].nombre}**: ${cantidad(r.n, 'artículo')} de ${cantidad(r.proveedores, 'proveedor')}.`),
+      nacionales
+        ? `\n💡 ${nacionales === nArt(base) ? 'Todos' : `${entero(nacionales)} de los ${entero(nArt(base))}`} tienen cobertura nacional: llegan a todas las regiones.`
+        : '',
+      'Toca una región abajo para ver sus artículos.',
+    ].filter(Boolean).join('\n'),
     regiones: regiones.slice(0, 6).map((r) => ({
       clave: r.s, nombre: `Región ${REGIONES[r.s].nombre}`, articulos: r.n,
       detalle: `${r.s} · ${cuenta(r.proveedores, 'proveedor')} · ${r.solo} regionales`,
@@ -1236,7 +1423,8 @@ const DIRECTAS = new Set<Intencion['pide']>(['proveedores', 'productos', 'marcas
  * tiene), saludos, preguntas que no son del catálogo, búsquedas sin resultados y listas o cuentas (DIRECTAS). Ahí es
  * donde un modelo pequeño inventa, y así no se espera. null si la pregunta sí va al modelo.
  */
-export function respuestaDirecta(pregunta: string, datos: string, i?: Intencion): string | null {
+export function respuestaDirecta(pregunta: string, consulta: Pick<Consulta, 'datos' | 'respuesta'>, i?: Intencion): string | null {
+  const { datos, respuesta } = consulta;
   const q = sinAcentos(pregunta);
   if (/\b(mas|menos) (vendid|comprad|pedid|solicitad)|\bventas?\b|\bmas se vende/.test(q)) return SIN_VENTAS;
   if (!datos) {
@@ -1245,7 +1433,7 @@ export function respuestaDirecta(pregunta: string, datos: string, i?: Intencion)
   }
   if (sinResultados(datos)) return respuestaSinModelo(datos);
   // (una comparación sí va al modelo, aunque compare proveedores: ahí redactar la conclusión ayuda)
-  return i && DIRECTAS.has(i.pide) && !i.comparar ? respuestaSinModelo(datos) : null;
+  return i && DIRECTAS.has(i.pide) && !i.comparar ? respuesta ?? respuestaSinModelo(datos) : null;
 }
 
 /**

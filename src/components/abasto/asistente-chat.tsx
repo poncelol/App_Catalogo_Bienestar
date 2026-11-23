@@ -115,7 +115,9 @@ function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat 
     };
     // Sin nada que redactar (ventas, saludos, nada encontrado, listas y cuentas), la respuesta sale al instante con
     // los datos tal cual: el modelo solo tardaría y ahí es donde inventa
-    const directa = respuestaDirecta(q, consulta.datos, intencion);
+    const directa = respuestaDirecta(q, consulta, intencion);
+    // El porqué que calculó la app, después de lo que redacte el modelo (o de las cifras, si el modelo falla)
+    const conNota = (texto: string) => (consulta.nota ? `${texto}\n\n${consulta.nota}` : texto);
     if (directa) {
       setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, { id, rol: 'asistente', texto: directa, ...tarjetas }]);
       ocupado.current = false;
@@ -170,13 +172,13 @@ function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat 
       const revisada = cancelado
         ? { texto: limpiarRespuesta(ultimo) ? `${limpiarRespuesta(ultimo)}…\n\n(Respuesta detenida)` : 'Respuesta detenida.' }
         : revisarRespuesta(texto, consulta.datos);
-      cambiar({ ...revisada, pendiente: false });
+      cambiar({ ...revisada, texto: cancelado ? revisada.texto : conNota(revisada.texto), pendiente: false });
     } catch (e) {
       terminado = true;
       if (__DEV__ || DEPURAR) console.info('[asistente] el modelo falló dos veces; respuesta con los datos (C):', e);
       let texto: string;
       try {
-        texto = respuestaSinModelo(consulta.datos);
+        texto = conNota(respuestaSinModelo(consulta.datos));
       } catch {
         texto = 'Esto es lo que encontré en el catálogo:';
       }
