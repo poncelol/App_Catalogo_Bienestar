@@ -275,7 +275,9 @@ function useMotorEnTelefono(): Motor {
   };
 
   // Lo que ocupan las instrucciones ya está contado en presupuestoDatos
-  return { estado, enviar, detener: () => sesion?.stop(), contexto };
+  // En el teléfono, 5 artículos y ~3000 caracteres de datos por pregunta: menos que leer, empieza a responder antes
+  // (y la memoria de la sesión se llena más despacio: reiniciarla obliga a cargar el modelo otra vez)
+  return { estado, enviar, detener: () => sesion?.stop(), contexto, maxArticulos: 5, maxDatos: 3000 };
 }
 
 // Se decide una sola vez al cargar la app, así el hook siempre llama a los mismos hooks

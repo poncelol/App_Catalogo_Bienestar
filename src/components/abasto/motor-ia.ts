@@ -16,7 +16,7 @@
  * en Android el sistema le quita la memoria a media respuesta) y tras un rato con el asistente cerrado (5 minutos en
  * teléfono, 20 en computadora). Al volver se carga del almacenamiento del navegador, sin descargarse otra vez.
  */
-import type { ChatCompletionMessageParam, MLCEngineInterface } from '@mlc-ai/web-llm';
+import type { MLCEngineInterface } from '@mlc-ai/web-llm';
 import { useEffect, useRef, useState } from 'react';
 
 import { instrucciones, limpiarRespuesta, RESPUESTA_MAX, type EstadoMotor, type Motor } from '@/data/asistente';
@@ -30,13 +30,18 @@ type Perfil = {
   qwen3: boolean;
   /** Con el asistente cerrado este tiempo, se suelta el modelo. */
   liberarTrasMs: number;
+  /** Artículos y caracteres de datos por pregunta: en teléfono, menos, para que empiece a responder antes. */
+  maxArticulos: number;
+  maxDatos: number;
 };
 
 const COMPLETO: Perfil = {
   f16: 'Qwen3-1.7B-q4f16_1-MLC', f32: 'Qwen3-1.7B-q4f32_1-MLC', tamano: '1 GB', qwen3: true, liberarTrasMs: 20 * 60 * 1000,
+  maxArticulos: 8, maxDatos: 5000,
 };
 const LIGERO: Perfil = {
   f16: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', f32: 'Llama-3.2-1B-Instruct-q4f32_1-MLC', tamano: '700 MB', qwen3: false, liberarTrasMs: 5 * 60 * 1000,
+  maxArticulos: 5, maxDatos: 3000,
 };
 /** Modelos de versiones anteriores: se borran del navegador para no ocupar espacio. */
 const ANTERIORES = ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-0.6B-q4f32_1-MLC'];
@@ -49,12 +54,13 @@ function perfil(): Perfil {
   return movil || (nav.deviceMemory ?? 8) < 8 ? LIGERO : COMPLETO;
 }
 
-/** Preguntas anteriores (con sus datos) que se le recuerdan al modelo; más llenaría su memoria de contexto. */
-const TURNOS_PREVIOS = 2;
-/** Memoria de contexto de los dos modelos en WebLLM (context_window_size), en tokens. */
+/**
+ * Memoria de contexto de los dos modelos en WebLLM (context_window_size), en tokens. Cada pregunta va sola, sin las
+ * anteriores: WebLLM solo aprovecha lo ya leído si la conversación es idéntica a la anterior más un mensaje, y como
+ * cada pregunta trae datos distintos, con historial releía todo cada vez (más lento). El tema de la conversación lo
+ * sigue la app («¿y el más caro?», ver conContexto).
+ */
 const CONTEXTO = 4096;
-/** Lo que se aparta para las preguntas y respuestas anteriores que se le recuerdan. */
-const RESERVA_HISTORIAL = TURNOS_PREVIOS * (60 + RESPUESTA_MAX);
 /** Si el asistente se usó en estos días, el modelo se carga al abrir la página. */
 const DIAS_PRECARGA = 7;
 const CLAVE_USO = 'asistente.ultimoUso';
@@ -206,7 +212,6 @@ const esDeRed = (e: unknown) => /fetch|network|load failed|timeout|aborted|conne
 
 export function useMotor(): Motor {
   const [estado, setEstado] = useState<EstadoMotor>(() => (cargado ? { fase: 'listo' } : { fase: 'revisando' }));
-  const historial = useRef<ChatCompletionMessageParam[]>([]);
   const cancelado = useRef(false);
 
   useEffect(() => {
@@ -238,11 +243,10 @@ export function useMotor(): Motor {
       // Si se soltó el modelo (segundo plano, tarjeta gráfica reiniciada), se vuelve a cargar aquí, sin avisar:
       // ya está en el almacenamiento del navegador, así que no se descarga otra vez
       const { motor: m, perfil: p } = cargado ?? (await cargarMotor(() => undefined));
-      const pregunta: ChatCompletionMessageParam = { role: 'user', content: mensaje };
-      const generar = async (previos: ChatCompletionMessageParam[]) => {
+      const generar = async () => {
         // Casi sin aleatoriedad, para que se apegue a los datos, y con castigo a repetir, para que no se cicle
         const flujo = await m.chat.completions.create({
-          messages: [{ role: 'system', content: instrucciones() }, ...previos, pregunta],
+          messages: [{ role: 'system', content: instrucciones() }, { role: 'user', content: mensaje }],
           stream: true,
           temperature: 0.2,
           top_p: 0.8,
@@ -261,27 +265,16 @@ export function useMotor(): Motor {
       };
       let salida: string;
       try {
-        salida = await generar(historial.current);
+        salida = await generar();
       } catch (e) {
-        // Memoria de contexto llena: se olvidan las preguntas anteriores y se intenta otra vez
-        if (/context|window|exceed|too long/i.test(detalle(e)) && historial.current.length) {
-          historial.current = [];
-          salida = await generar([]);
-        } else {
-          // La tarjeta gráfica se reinició (pestaña en segundo plano, controlador; «mapAsync … Buffer was unmapped»:
-          // Android liberó su memoria a media respuesta). Se suelta el modelo para que el siguiente intento lo cargue
-          // de nuevo; el chat reintenta solo y, si tampoco sale, responde con los datos del catálogo
-          if (/device|lost|disposed|unload|unmapped|mapAsync|GPUBuffer/i.test(detalle(e))) await liberar();
-          throw e;
-        }
+        // La tarjeta gráfica se reinició (pestaña en segundo plano, controlador; «mapAsync … Buffer was unmapped»:
+        // Android liberó su memoria a media respuesta). Se suelta el modelo para que el siguiente intento lo cargue
+        // de nuevo; el chat reintenta solo y, si tampoco sale, responde con los datos del catálogo
+        if (/device|lost|disposed|unload|unmapped|mapAsync|GPUBuffer/i.test(detalle(e))) await liberar();
+        throw e;
       }
       if (cancelado.current) return { texto: '', cancelado: true };
-      const texto = limpiarRespuesta(salida);
-      // Se recuerda la pregunta sin sus datos: con los de antes a la vista, un modelo pequeño los mezcla con los nuevos
-      const sinDatos = mensaje.match(/Pregunta: ([\s\S]*?)(\n\n|$)/)?.[1] ?? mensaje;
-      historial.current = [...historial.current, { role: 'user' as const, content: sinDatos }, { role: 'assistant' as const, content: texto }]
-        .slice(-TURNOS_PREVIOS * 2);
-      return { texto, cancelado: false };
+      return { texto: limpiarRespuesta(salida), cancelado: false };
     } finally {
       generando--;
       // Si la página pasó a segundo plano mientras respondía, se suelta al terminar
@@ -294,5 +287,5 @@ export function useMotor(): Motor {
     cargado?.motor.interruptGenerate();
   };
 
-  return { estado, enviar, detener, contexto: CONTEXTO - RESERVA_HISTORIAL };
+  return { estado, enviar, detener, contexto: CONTEXTO, maxArticulos: perfil().maxArticulos, maxDatos: perfil().maxDatos };
 }

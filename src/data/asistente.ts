@@ -7,7 +7,7 @@
  * probarlo y usarlo en cualquier plataforma.
  */
 import {
-  REGIONES, SIGLAS, contar, diasHasta, diasVigencia, dinero, fechaCorta, fechaLarga, hojasNegociacion, hoyISO, nArt, sinAcentos,
+  REGIONES, SIGLAS, contar, diasHasta, diasVigencia, dinero, fechaCorta, hojasNegociacion, hoyISO, nArt, sinAcentos,
   type Articulo, type Hoja,
 } from '@/data/abasto';
 import { filtrarArticulos, palabras, type Orden } from '@/data/busqueda';
@@ -71,12 +71,22 @@ export type Motor = {
   detener: () => void;
   /** Memoria de contexto del modelo (en tokens) que queda para cada pregunta: instrucciones, datos y respuesta. */
   contexto: number;
+  /** Artículos que se le pasan por pregunta, como mucho (menos = empieza a responder antes). */
+  maxArticulos?: number;
+  /**
+   * Caracteres de datos por pregunta, como mucho, aunque quepan más en su memoria: cuanto menos lee, antes empieza a
+   * responder. Si no caben, se pasan con menos detalle (ver consultarCatalogo).
+   */
+  maxDatos?: number;
 };
 
-/** Cuántos artículos se le pasan al modelo por consulta, como mucho (más haría lenta la respuesta en el teléfono). */
+/**
+ * Cuántos artículos se le pasan al modelo por consulta, como mucho: cada uno es más texto que leer antes de empezar
+ * a responder. Cada motor puede pedir menos (en el teléfono, 5; ver Motor.maxArticulos).
+ */
 const MAX_ARTICULOS = 8;
-/** Largo máximo de la respuesta, en tokens. */
-export const RESPUESTA_MAX = 400;
+/** Largo máximo de la respuesta, en tokens: escribir es lo más lento, y el detalle ya está en las tarjetas. */
+export const RESPUESTA_MAX = 200;
 
 /**
  * Cuántos caracteres de datos caben en la memoria del modelo: lo que queda tras las instrucciones, la pregunta y
@@ -88,28 +98,22 @@ export function presupuestoDatos(contexto: number) {
   return Math.max(1500, Math.floor(tokens * 2.6));
 }
 
+/**
+ * Instrucciones del modelo. Cortas: el modelo las lee completas antes de cada respuesta. Solo cubren lo que le
+ * llega al modelo (artículos y comparaciones); las listas de proveedores, hojas, regiones, tipos de inventario, el
+ * resumen, lo que no se encontró y lo que no es del catálogo se responden sin él (ver respuestaDirecta).
+ */
 export function instrucciones() {
   return [
-    'Eres el asistente del catálogo de artículos del Programa de Abasto Rural 2026 de Alimentación para el Bienestar.',
-    'Responde siempre en español, con palabras sencillas, como le explicarías a una persona que no conoce el sistema.',
-    'Cada mensaje trae los "Datos del catálogo" consultados para esa pregunta. Usa SOLO esos datos: no inventes artículos, precios ni cantidades.',
-    'Forma de responder:',
+    'Eres el asistente del catálogo del Programa de Abasto Rural 2026 de Alimentación para el Bienestar. Responde en español, con palabras sencillas.',
+    'Usa SOLO los "Datos del catálogo" del mensaje: no inventes artículos, precios ni cantidades.',
     // (Sin un ejemplo con cifras: un modelo pequeño lo copia tal cual en respuestas que no tienen nada que ver)
-    '- Empieza contestando directo la pregunta en una frase, con el total y el tema exactos que traen los datos.',
-    '- Si hay varios, menciona solo 2 o 3 de los más útiles, cada uno en una viñeta con nombre, marca, presentación y precio.',
-    '- Si preguntan por proveedores, di cuántos son (el número que traen los datos) y nombra los 3 con más artículos, con cuántos artículos tiene cada uno.',
-    '- Una hoja de negociación es el acuerdo con un proveedor: fija sus artículos, precios, tipo de inventario (PAR, Oferta u otro), cobertura y vigencia. Si preguntan por hojas, di cuántas son y nombra 2 o 3 con su proveedor y la fecha en que vencen.',
-    '- Si preguntan por tipos de inventario o por regiones, da la cifra de cada uno tal como viene en los datos.',
-    '- No copies los datos tal cual ni uses claves, códigos o abreviaturas (ART., CVE, PROD., c/u): escribe frases completas.',
-    '- Si los datos traen una "Comparación", empieza por su "Conclusión" y luego da la cifra principal de cada lado.',
-    '- Si traen varias partes ("Parte 1", "Parte 2"), contesta cada parte en su propia viñeta, en el mismo orden.',
-    '- Las cuentas ya están hechas (totales, precio más bajo, más alto, promedio y precio por litro o kilo): repítelas tal cual, no calcules.',
-    '- Para decir qué conviene más entre presentaciones distintas, usa el precio por litro o por kilo, no el de la pieza.',
-    '- Si una búsqueda dice que no se encontraron artículos, dilo claro y sugiere quitar algún filtro.',
-    '- Termina, si aplica, diciendo que el resto está en las tarjetas de abajo. Máximo 6 líneas en total.',
-    'Si no hay datos, di amablemente que solo puedes ayudar con el catálogo y da un ejemplo de pregunta, como "¿qué aceites hay?".',
-    'Los precios son por pieza, en pesos mexicanos.',
-    `Hoy es ${fechaLarga(hoyISO())}.`,
+    '- Empieza contestando directo en una frase, con el total y el tema exactos de los datos.',
+    '- Luego 2 o 3 artículos útiles, uno por viñeta: nombre, marca, presentación y precio.',
+    '- Las cuentas ya están hechas (total, más bajo, más alto, promedio, precio por litro o kilo): repítelas, no calcules. Para comparar presentaciones distintas, usa el precio por litro o kilo.',
+    '- Si hay "Comparación", empieza por su "Conclusión". Si hay "Parte 1", "Parte 2"…, una viñeta por parte.',
+    '- Sin claves ni abreviaturas (ART., CVE, PROD., c/u). Precios por pieza, en pesos.',
+    '- Máximo 4 líneas; el resto está en las tarjetas de abajo.',
   ].join('\n');
 }
 
@@ -785,14 +789,14 @@ const DETALLE = [
  * (caracteres, ver presupuestoDatos): primero con 8 artículos por tema, y si no cabe, con menos. Las tarjetas
  * siempre traen todo lo encontrado.
  */
-export function consultarCatalogo(i: Intencion, arts: Articulo[], presupuesto = Infinity): Consulta {
+export function consultarCatalogo(i: Intencion, arts: Articulo[], presupuesto = Infinity, maxArticulos = MAX_ARTICULOS): Consulta {
   // La comparación se calcula una vez, con todos los artículos de cada lado
   const lados = i.partes?.length && i.comparar
     ? comparacion(i.partes, i.partes.map((p) => consultarParte({ ...p, pide: 'articulos' }, arts, 1, false).articulos))
     : '';
   let consulta: Consulta | null = null;
   for (const [limite, resumen] of DETALLE) {
-    consulta = armar(i, arts, Math.min(limite, MAX_ARTICULOS), resumen, lados);
+    consulta = armar(i, arts, Math.min(limite, maxArticulos), resumen, lados);
     if (consulta.datos.length + lados.length <= presupuesto) break;
   }
   const aviso = i.omitidos
@@ -1221,18 +1225,27 @@ const SALUDO = '¡Hola! Puedo ayudarte con el catálogo de Abasto Rural: artícu
 const GRACIAS = '¡Con gusto! Si necesitas algo más del catálogo, pregúntame.';
 
 /**
- * Respuesta sin pasar por el modelo, cuando no hay nada que redactar: preguntas de ventas (el catálogo no las
- * tiene), saludos, preguntas que no son del catálogo y búsquedas sin resultados. Ahí es donde un modelo pequeño
- * inventa. null si la pregunta sí va al modelo.
+ * Lo que se responde al instante con los datos tal cual, sin el modelo: listas y cuentas (proveedores, productos,
+ * marcas, hojas, tipos de inventario, regiones y el resumen del catálogo). Ya son la respuesta exacta; el modelo
+ * solo tardaría en repetirlas y podría equivocarse al hacerlo.
  */
-export function respuestaDirecta(pregunta: string, datos: string): string | null {
+const DIRECTAS = new Set<Intencion['pide']>(['proveedores', 'productos', 'marcas', 'hojas', 'inventarios', 'regiones', 'resumen']);
+
+/**
+ * Respuesta sin pasar por el modelo, cuando no hay nada que redactar: preguntas de ventas (el catálogo no las
+ * tiene), saludos, preguntas que no son del catálogo, búsquedas sin resultados y listas o cuentas (DIRECTAS). Ahí es
+ * donde un modelo pequeño inventa, y así no se espera. null si la pregunta sí va al modelo.
+ */
+export function respuestaDirecta(pregunta: string, datos: string, i?: Intencion): string | null {
   const q = sinAcentos(pregunta);
   if (/\b(mas|menos) (vendid|comprad|pedid|solicitad)|\bventas?\b|\bmas se vende/.test(q)) return SIN_VENTAS;
   if (!datos) {
     if (/^\W*(hola|buen[oa]s|que tal|hey|saludos)\b/.test(q)) return SALUDO;
     return /\bgracias\b/.test(q) ? GRACIAS : SIN_DATOS;
   }
-  return sinResultados(datos) ? respuestaSinModelo(datos) : null;
+  if (sinResultados(datos)) return respuestaSinModelo(datos);
+  // (una comparación sí va al modelo, aunque compare proveedores: ahí redactar la conclusión ayuda)
+  return i && DIRECTAS.has(i.pide) && !i.comparar ? respuestaSinModelo(datos) : null;
 }
 
 /**

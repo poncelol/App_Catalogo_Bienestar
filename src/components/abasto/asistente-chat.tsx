@@ -29,6 +29,18 @@ let siguiente = 0;
 const nuevoId = () => `m${Date.now()}-${siguiente++}`;
 
 /**
+ * Tiempos de cada respuesta en la consola: siempre en desarrollo; en la web publicada, con
+ * `localStorage.setItem('asistente.depurar', '1')` en la consola del navegador.
+ */
+const DEPURAR = (() => {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('asistente.depurar') === '1';
+  } catch {
+    return false;
+  }
+})();
+
+/**
  * Chat del asistente, igual en Android, iPhone y web; solo cambia el motor que corre el modelo (motor-ia).
  * El modelo se descarga solo la primera vez que se abre (en el teléfono, antes y en segundo plano si hay Wi-Fi);
  * después se carga directo de lo ya descargado.
@@ -90,8 +102,9 @@ function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat 
     ocupado.current = true;
     // Primero la app entiende la pregunta (unida a la anterior si sigue con su tema) y consulta el catálogo
     const intencion = planear(q, previa.current, arts);
-    // Con tanto detalle como quepa en la memoria del modelo de este dispositivo
-    const consulta = consultarCatalogo(intencion, arts, presupuestoDatos(motor.contexto));
+    // Con tanto detalle como quepa en la memoria del modelo de este dispositivo (y los artículos que pide su motor)
+    const presupuesto = Math.min(presupuestoDatos(motor.contexto), motor.maxDatos ?? Infinity);
+    const consulta = consultarCatalogo(intencion, arts, presupuesto, motor.maxArticulos);
     if (tieneTema(intencion) || tieneFiltros(intencion)) previa.current = intencion;
 
     const id = nuevoId();
@@ -100,11 +113,13 @@ function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat 
       hojas: consulta.hojas, inventarios: consulta.inventarios, regiones: consulta.regiones,
       entendido: describir(intencion),
     };
-    // Sin nada que redactar (ventas, saludos, nada encontrado), la respuesta sale directa: ahí el modelo inventa
-    const directa = respuestaDirecta(q, consulta.datos);
+    // Sin nada que redactar (ventas, saludos, nada encontrado, listas y cuentas), la respuesta sale al instante con
+    // los datos tal cual: el modelo solo tardaría y ahí es donde inventa
+    const directa = respuestaDirecta(q, consulta.datos, intencion);
     if (directa) {
       setMensajes((m) => [...m, { id: nuevoId(), rol: 'usuario', texto: q }, { id, rol: 'asistente', texto: directa, ...tarjetas }]);
       ocupado.current = false;
+      if (__DEV__ || DEPURAR) console.info(`[asistente] respuesta directa (${intencion.pide}), sin modelo`);
       return;
     }
     setGenerando(true);
@@ -116,7 +131,11 @@ function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat 
     let ultimo = '';
     let programado = false;
     let terminado = false;
+    // Tiempos, para medir: cuánto tarda en empezar a escribir (leer instrucciones y datos) y en terminar
+    const inicio = Date.now();
+    let primera = 0;
     const alEscribir = (crudo: string) => {
+      if (!primera && crudo) primera = Date.now();
       ultimo = crudo;
       if (programado) return;
       programado = true;
@@ -141,13 +160,20 @@ function Sesion({ mensajes, setMensajes, onReintentar, ...acciones }: PropsChat 
     try {
       const { texto, cancelado } = await conModelo();
       terminado = true;
+      if (__DEV__ || DEPURAR) {
+        const fin = Date.now();
+        const escribiendo = (fin - (primera || fin)) / 1000;
+        console.info(`[asistente] ${mensaje.length} caracteres de entrada · empezó a escribir en ${((primera || fin) - inicio) / 1000} s`
+          + ` · escribió ${ultimo.length} caracteres en ${escribiendo} s (${escribiendo ? Math.round(ultimo.length / escribiendo) : '–'} caracteres/s)`);
+      }
       // Antes de dejar la respuesta, se revisa que sus cifras hayan salido de los datos consultados
       const revisada = cancelado
         ? { texto: limpiarRespuesta(ultimo) ? `${limpiarRespuesta(ultimo)}…\n\n(Respuesta detenida)` : 'Respuesta detenida.' }
         : revisarRespuesta(texto, consulta.datos);
       cambiar({ ...revisada, pendiente: false });
-    } catch {
+    } catch (e) {
       terminado = true;
+      if (__DEV__ || DEPURAR) console.info('[asistente] el modelo falló dos veces; respuesta con los datos (C):', e);
       let texto: string;
       try {
         texto = respuestaSinModelo(consulta.datos);
